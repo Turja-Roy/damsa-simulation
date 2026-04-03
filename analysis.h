@@ -35,6 +35,13 @@ public:
     void Reset();
     void ResetEventTracking();
     
+    G4int GetTargetExitPhotons() const;
+    G4int GetTargetExitNeutrons() const;
+    G4int GetCaloEntrancePhotons() const;
+    G4int GetCaloEntranceNeutrons() const;
+    G4int GetForwardPhotons() const;  // Photons within 0-20 degrees
+    G4double GetEfficiency() const;
+    
     G4bool WasTrackRecorded(G4int trackID, const G4String& location);
     
 private:

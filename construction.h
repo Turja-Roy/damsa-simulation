@@ -31,6 +31,13 @@ public:
 
     virtual G4VPhysicalVolume* Construct() override;
 
+    void SetGapDistance(G4double gap);
+    void SetTargetLength(G4double length);
+    void SetTargetTransverse(G4double size);
+
+    G4double GetTargetExitZ() const { return fTargetExitZ; }
+    G4double GetCaloEntranceZ() const { return fCaloEntranceZ; }
+
 private:
     virtual void ConstructSDandField() override;
     
@@ -42,6 +49,9 @@ private:
 
     G4double fWorldSize;
     G4double fTargetX, fTargetY, fTargetZ;
+    G4double fTargetExitZ;
+    G4double fGapDistance;
+    G4double fCaloEntranceZ;
     G4double fChamberInnerRadius, fChamberWallThickness, fChamberLength;
     G4double fMagnetOuterSizeXY, fMagnetOuterSizeZ, fMagnetHollowSizeXY, fMagnetHollowSizeZ;
     G4double fTrackerSizeXY, fTrackerThickness;

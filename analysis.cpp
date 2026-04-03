@@ -274,6 +274,49 @@ void DamsaAnalysis::Reset()
     }
 }
 
+G4int DamsaAnalysis::GetTargetExitPhotons() const
+{
+    return fLocations.at("TargetExit").GetParticleCount("gamma");
+}
+
+G4int DamsaAnalysis::GetTargetExitNeutrons() const
+{
+    return fLocations.at("TargetExit").GetParticleCount("neutron");
+}
+
+G4int DamsaAnalysis::GetCaloEntrancePhotons() const
+{
+    return fLocations.at("CaloEntrance").GetParticleCount("gamma");
+}
+
+G4int DamsaAnalysis::GetCaloEntranceNeutrons() const
+{
+    return fLocations.at("CaloEntrance").GetParticleCount("neutron");
+}
+
+G4int DamsaAnalysis::GetForwardPhotons() const
+{
+    const auto& locData = fLocations.at("CaloEntrance");
+    const auto* pdata = locData.GetParticleDataMap().GetParticlePtr("gamma");
+    if (!pdata) return 0;
+    
+    G4int count = 0;
+    for (G4double angle : pdata->angles) {
+        if (angle <= 20.0 * deg) count++;  // 0-20 degrees
+    }
+    return count;
+}
+
+G4double DamsaAnalysis::GetEfficiency() const
+{
+    G4int exitPhotons = GetTargetExitPhotons();
+    G4int detPhotons = GetCaloEntrancePhotons();
+    if (exitPhotons > 0) {
+        return 100.0 * detPhotons / exitPhotons;
+    }
+    return 0.0;
+}
+
 TCanvas* CreateOverlayCanvasMap(std::map<G4String, TH1D*>& energyHists,
                                std::map<G4String, TH1D*>& angleHists,
                                const G4String& locationName)

@@ -17,6 +17,9 @@ DamsaDetectorConstruction::DamsaDetectorConstruction()
     fTargetX = 5.0*cm;
     fTargetY = 5.0*cm;
     fTargetZ = 10.0*cm;
+    fTargetExitZ = -40.0*cm;  // Target rear face position
+    fGapDistance = 47.0*cm;  // Default gap
+    fCaloEntranceZ = 0.0*cm; // Will be calculated
 
     fChamberInnerRadius = 10.0*cm;
     fChamberWallThickness = 0.5*cm;
@@ -39,11 +42,32 @@ DamsaDetectorConstruction::DamsaDetectorConstruction()
 
 DamsaDetectorConstruction::~DamsaDetectorConstruction(){}
 
+void DamsaDetectorConstruction::SetGapDistance(G4double gap)
+{
+    fGapDistance = gap;
+    G4cout << "Gap distance set to: " << gap/cm << " cm" << G4endl;
+}
+
+void DamsaDetectorConstruction::SetTargetLength(G4double length)
+{
+    fTargetZ = length;
+    G4cout << "Target length set to: " << length/cm << " cm" << G4endl;
+}
+
+void DamsaDetectorConstruction::SetTargetTransverse(G4double size)
+{
+    fTargetX = size;
+    fTargetY = size;
+    G4cout << "Target transverse size set to: " << size/cm << " cm" << G4endl;
+}
+
 G4VPhysicalVolume* DamsaDetectorConstruction::Construct()
 {
     DefineMaterials();
 
-    auto* solidWorld = new G4Box("solidWorld", 0.2*m, 0.2*m, 0.6*m);
+    // Increase world size for gap scan mode to accommodate larger distances
+    G4double worldSizeZ = (fGapDistance > 0) ? 2.0*m : 0.6*m;
+    auto* solidWorld = new G4Box("solidWorld", 0.2*m, 0.2*m, worldSizeZ);
     auto* logicWorld = new G4LogicalVolume(solidWorld, fMatAir, "logicWorld");
     auto* physWorld = new G4PVPlacement(0, G4ThreeVector(0., 0., 0.), logicWorld, "physWorld", 0, false, 0, true);
 
@@ -52,6 +76,9 @@ G4VPhysicalVolume* DamsaDetectorConstruction::Construct()
     BuildTarget(logicWorld, zPos);
     BuildVacuumChamber(logicWorld, zPos);
     BuildMagnetAndTrackerRegion(logicWorld, zPos);
+    
+    // Store target exit Z for gap calculations (target rear face)
+    fTargetExitZ = -40.0*cm;  // Fixed target exit position
     BuildCalorimeter(logicWorld, zPos);
 
     return physWorld;
@@ -211,98 +238,180 @@ void DamsaDetectorConstruction::BuildMagnetAndTrackerRegion(G4LogicalVolume* wor
 void DamsaDetectorConstruction::BuildCalorimeter(G4LogicalVolume* worldLV, G4double& zPos)
 {
     G4double ecalDepth = fNumCaloLayers * fLayerThickness;
-    G4double scoringHalfThickness = 0.05*mm;  // Match reference implementation (0.1mm total thickness)
+    G4double scoringHalfThickness = 0.05*mm;
     
-    // Scoring plane at calorimeter entrance (BEFORE ECAL, in worldLV)
-    // zPos is currently at the END of the magnet region
-    // Place scoring plane a bit AFTER the magnet, with clearance
-    auto* solidScoringCaloEntrance = new G4Box("solidScoringCaloEntrance", fCaloSizeXY/2., fCaloSizeXY/2., scoringHalfThickness);
-    fLogicScoringCaloEntrance = new G4LogicalVolume(solidScoringCaloEntrance,
-                                                    fMatVacuum,
-                                                    "logicScoringCaloEntrance");
-    auto* scoringEntranceVis = new G4VisAttributes(G4Colour(0.0, 1.0, 0.0, 1.0));
-    scoringEntranceVis->SetForceSolid(true);
-    fLogicScoringCaloEntrance->SetVisAttributes(scoringEntranceVis);
-    // fLogicScoringCaloEntrance->SetVisAttributes(G4VisAttributes::GetInvisible());
-    
-    // Place entrance scoring plane AFTER magnet ends (zPos + clearance)
-    G4double caloEntranceZ = zPos + 1.0*mm + scoringHalfThickness;
-    new G4PVPlacement(0, G4ThreeVector(0., 0., caloEntranceZ),
-                      fLogicScoringCaloEntrance, "physScoringCaloEntrance",
-                      worldLV, false, 0, true);
-    
-    G4cout << "\n=== CALORIMETER ENTRANCE SCORING GEOMETRY ===" << G4endl;
-    G4cout << "ECAL depth: " << ecalDepth/cm << " cm" << G4endl;
-    G4cout << "Magnet region ends at Z: " << zPos/cm << " cm" << G4endl;
-    G4cout << "Calo entrance scoring absolute Z: " << caloEntranceZ/cm << " cm" << G4endl;
-    
-    // Gap between magnet and ECAL for the scoring plane
-    G4double gapForScoring = 2.0*mm + 2*scoringHalfThickness;  // 2mm gap + scoring plane thickness
-    zPos += gapForScoring;  // Move past the gap
-    
-    G4cout << "ECAL front face absolute Z: " << zPos/cm << " cm" << G4endl;
-    G4cout << "ECAL will be centered at absolute Z: " << (zPos + ecalDepth/2.)/cm << " cm" << G4endl;
+    if (fGapDistance > 0) {
+        // Gap scan mode: position calorimeter based on gap distance
+        fCaloEntranceZ = fTargetExitZ + fGapDistance;
+        
+        G4cout << "\n=== CALORIMETER POSITION (Gap Scan Mode) ===" << G4endl;
+        G4cout << "Target exit Z: " << fTargetExitZ/cm << " cm" << G4endl;
+        G4cout << "Gap distance: " << fGapDistance/cm << " cm" << G4endl;
+        G4cout << "Calo entrance Z: " << fCaloEntranceZ/cm << " cm" << G4endl;
+        
+        // Place scoring plane at calorimeter entrance
+        auto* solidScoringCaloEntrance = new G4Box("solidScoringCaloEntrance", fCaloSizeXY/2., fCaloSizeXY/2., scoringHalfThickness);
+        fLogicScoringCaloEntrance = new G4LogicalVolume(solidScoringCaloEntrance,
+                                                        fMatVacuum,
+                                                        "logicScoringCaloEntrance");
+        auto* scoringEntranceVis = new G4VisAttributes(G4Colour(0.0, 1.0, 0.0, 1.0));
+        scoringEntranceVis->SetForceSolid(true);
+        fLogicScoringCaloEntrance->SetVisAttributes(scoringEntranceVis);
+        
+        new G4PVPlacement(0, G4ThreeVector(0., 0., fCaloEntranceZ),
+                          fLogicScoringCaloEntrance, "physScoringCaloEntrance",
+                          worldLV, false, 0, true);
+        
+        G4double ecalFrontZ = fCaloEntranceZ + scoringHalfThickness;
+        G4double ecalCenterZ = ecalFrontZ + ecalDepth / 2.;
+        
+        G4cout << "ECAL front face absolute Z: " << ecalFrontZ/cm << " cm" << G4endl;
+        G4cout << "ECAL center absolute Z: " << ecalCenterZ/cm << " cm" << G4endl;
+        
+        // Create ECAL container
+        auto* solidECAL = new G4Box("solidECAL", fCaloSizeXY/2., fCaloSizeXY/2., ecalDepth/2.);
+        auto* logicECAL = new G4LogicalVolume(solidECAL, fMatAir, "logicECAL");
+        logicECAL->SetVisAttributes(G4VisAttributes::GetInvisible());
 
-    // Create ECAL container
-    auto* solidECAL = new G4Box("solidECAL", fCaloSizeXY/2., fCaloSizeXY/2., ecalDepth/2.);
-    auto* logicECAL = new G4LogicalVolume(solidECAL, fMatAir, "logicECAL");
-    logicECAL->SetVisAttributes(G4VisAttributes::GetInvisible());
+        auto* solidCrystal = new G4Box("solidCrystal", 6.0*cm, 0.5*cm, 0.5*cm);
+        fLogicCrystal = new G4LogicalVolume(solidCrystal, fMatCsI, "logicCrystal");
 
-    auto* solidCrystal = new G4Box("solidCrystal", 6.0*cm, 0.5*cm, 0.5*cm);
-    fLogicCrystal = new G4LogicalVolume(solidCrystal, fMatCsI, "logicCrystal");
+        auto* caloVis = new G4VisAttributes(G4Colour(1.0, 0.0, 1.0, 0.5));
+        caloVis->SetForceSolid(true);
+        fLogicCrystal->SetVisAttributes(caloVis);
 
-    auto* caloVis = new G4VisAttributes(G4Colour(1.0, 0.0, 1.0, 0.5));
-    caloVis->SetForceSolid(true);
-    fLogicCrystal->SetVisAttributes(caloVis);
+        for(G4int layer = 0; layer < fNumCaloLayers; layer++) {
+            G4double localZ = -ecalDepth/2. + fLayerThickness/2. + layer * fLayerThickness;
+            G4bool isXOriented = (layer % 2 == 0);
 
-    for(G4int layer = 0; layer < fNumCaloLayers; layer++) {
-        G4double localZ = -ecalDepth/2. + fLayerThickness/2. + layer * fLayerThickness;
-        G4bool isXOriented = (layer % 2 == 0);
-
-        G4RotationMatrix* rot = nullptr;
-        if(!isXOriented) {
-            rot = new G4RotationMatrix();
-            rot->rotateZ(90.*deg);
-        }
-
-        for(G4int crystal = 0; crystal < fNumCrystalsPerLayer; crystal++) {
-            G4double offset = -fCaloSizeXY/2. + 0.5*cm + crystal * 1.0*cm;
-            G4ThreeVector position;
-
-            if(isXOriented) {
-                position = G4ThreeVector(0., offset, localZ);
-            } else {
-                position = G4ThreeVector(offset, 0., localZ);
+            G4RotationMatrix* rot = nullptr;
+            if(!isXOriented) {
+                rot = new G4RotationMatrix();
+                rot->rotateZ(90.*deg);
             }
 
-            G4int copyNo = layer * fNumCrystalsPerLayer + crystal;
-            new G4PVPlacement(rot, position, fLogicCrystal, "physCalorimeter", logicECAL, false, copyNo, true);
-        }
-    }
+            for(G4int crystal = 0; crystal < fNumCrystalsPerLayer; crystal++) {
+                G4double offset = -fCaloSizeXY/2. + 0.5*cm + crystal * 1.0*cm;
+                G4ThreeVector position;
 
-    // Scoring plane at calorimeter exit (AFTER ECAL, in worldLV)
-    auto* solidScoringCaloExit = new G4Box("solidScoringCaloExit", fCaloSizeXY/2., fCaloSizeXY/2., scoringHalfThickness);
-    fLogicScoringCaloExit = new G4LogicalVolume(solidScoringCaloExit,
-                                                fMatVacuum,
-                                                "logicScoringCaloExit");
-    auto* scoringExitVis = new G4VisAttributes(G4Colour(1.0, 0.0, 0.0, 1.0));
-    scoringExitVis->SetForceSolid(true);
-    fLogicScoringCaloExit->SetVisAttributes(scoringExitVis);
-    // fLogicScoringCaloExit->SetVisAttributes(G4VisAttributes::GetInvisible());
-    
-    // Place ECAL in world AFTER magnet region
-    zPos += ecalDepth/2.;  // Move to center of ECAL
-    new G4PVPlacement(0, G4ThreeVector(0., 0., zPos), logicECAL, "physECAL", worldLV, false, 0, true);
-    zPos += ecalDepth/2.;  // Move to end of ECAL
-    
-    // Place exit scoring plane just AFTER ECAL back face (in worldLV)
-    G4double caloExitZ = zPos + 0.1*mm + scoringHalfThickness;
-    new G4PVPlacement(0, G4ThreeVector(0., 0., caloExitZ),
-                      fLogicScoringCaloExit, "physScoringCaloExit",
-                      worldLV, false, 0, true);
-    
-    G4cout << "ECAL back face absolute Z: " << zPos/cm << " cm" << G4endl;
-    G4cout << "Calo exit scoring absolute Z: " << caloExitZ/cm << " cm" << G4endl;
+                if(isXOriented) {
+                    position = G4ThreeVector(0., offset, localZ);
+                } else {
+                    position = G4ThreeVector(offset, 0., localZ);
+                }
+
+                G4int copyNo = layer * fNumCrystalsPerLayer + crystal;
+                new G4PVPlacement(rot, position, fLogicCrystal, "physCalorimeter", logicECAL, false, copyNo, true);
+            }
+        }
+
+        // Scoring plane at calorimeter exit
+        auto* solidScoringCaloExit = new G4Box("solidScoringCaloExit", fCaloSizeXY/2., fCaloSizeXY/2., scoringHalfThickness);
+        fLogicScoringCaloExit = new G4LogicalVolume(solidScoringCaloExit,
+                                                    fMatVacuum,
+                                                    "logicScoringCaloExit");
+        auto* scoringExitVis = new G4VisAttributes(G4Colour(1.0, 0.0, 0.0, 1.0));
+        scoringExitVis->SetForceSolid(true);
+        fLogicScoringCaloExit->SetVisAttributes(scoringExitVis);
+        
+        new G4PVPlacement(0, G4ThreeVector(0., 0., ecalCenterZ), logicECAL, "physECAL", worldLV, false, 0, true);
+        
+        G4double caloExitZ = fCaloEntranceZ + scoringHalfThickness + ecalDepth + 0.1*mm + scoringHalfThickness;
+        new G4PVPlacement(0, G4ThreeVector(0., 0., caloExitZ),
+                          fLogicScoringCaloExit, "physScoringCaloExit",
+                          worldLV, false, 0, true);
+        
+        G4cout << "ECAL back face absolute Z: " << (fCaloEntranceZ + scoringHalfThickness + ecalDepth)/cm << " cm" << G4endl;
+        G4cout << "Calo exit scoring absolute Z: " << caloExitZ/cm << " cm" << G4endl;
+        
+    } else {
+        // Normal mode: position calorimeter after magnet (original behavior)
+        G4cout << "\n=== CALORIMETER ENTRANCE SCORING GEOMETRY (Normal Mode) ===" << G4endl;
+        G4cout << "ECAL depth: " << ecalDepth/cm << " cm" << G4endl;
+        G4cout << "Magnet region ends at Z: " << zPos/cm << " cm" << G4endl;
+        
+        // Scoring plane at calorimeter entrance
+        auto* solidScoringCaloEntrance = new G4Box("solidScoringCaloEntrance", fCaloSizeXY/2., fCaloSizeXY/2., scoringHalfThickness);
+        fLogicScoringCaloEntrance = new G4LogicalVolume(solidScoringCaloEntrance,
+                                                        fMatVacuum,
+                                                        "logicScoringCaloEntrance");
+        auto* scoringEntranceVis = new G4VisAttributes(G4Colour(0.0, 1.0, 0.0, 1.0));
+        scoringEntranceVis->SetForceSolid(true);
+        fLogicScoringCaloEntrance->SetVisAttributes(scoringEntranceVis);
+        
+        G4double caloEntranceZ = zPos + 1.0*mm + scoringHalfThickness;
+        new G4PVPlacement(0, G4ThreeVector(0., 0., caloEntranceZ),
+                          fLogicScoringCaloEntrance, "physScoringCaloEntrance",
+                          worldLV, false, 0, true);
+        
+        G4cout << "Calo entrance scoring absolute Z: " << caloEntranceZ/cm << " cm" << G4endl;
+        
+        G4double gapForScoring = 2.0*mm + 2*scoringHalfThickness;
+        zPos += gapForScoring;
+        
+        G4cout << "ECAL front face absolute Z: " << zPos/cm << " cm" << G4endl;
+        G4cout << "ECAL will be centered at absolute Z: " << (zPos + ecalDepth/2.)/cm << " cm" << G4endl;
+        
+        fCaloEntranceZ = caloEntranceZ;
+
+        // Create ECAL container
+        auto* solidECAL = new G4Box("solidECAL", fCaloSizeXY/2., fCaloSizeXY/2., ecalDepth/2.);
+        auto* logicECAL = new G4LogicalVolume(solidECAL, fMatAir, "logicECAL");
+        logicECAL->SetVisAttributes(G4VisAttributes::GetInvisible());
+
+        auto* solidCrystal = new G4Box("solidCrystal", 6.0*cm, 0.5*cm, 0.5*cm);
+        fLogicCrystal = new G4LogicalVolume(solidCrystal, fMatCsI, "logicCrystal");
+
+        auto* caloVis = new G4VisAttributes(G4Colour(1.0, 0.0, 1.0, 0.5));
+        caloVis->SetForceSolid(true);
+        fLogicCrystal->SetVisAttributes(caloVis);
+
+        for(G4int layer = 0; layer < fNumCaloLayers; layer++) {
+            G4double localZ = -ecalDepth/2. + fLayerThickness/2. + layer * fLayerThickness;
+            G4bool isXOriented = (layer % 2 == 0);
+
+            G4RotationMatrix* rot = nullptr;
+            if(!isXOriented) {
+                rot = new G4RotationMatrix();
+                rot->rotateZ(90.*deg);
+            }
+
+            for(G4int crystal = 0; crystal < fNumCrystalsPerLayer; crystal++) {
+                G4double offset = -fCaloSizeXY/2. + 0.5*cm + crystal * 1.0*cm;
+                G4ThreeVector position;
+
+                if(isXOriented) {
+                    position = G4ThreeVector(0., offset, localZ);
+                } else {
+                    position = G4ThreeVector(offset, 0., localZ);
+                }
+
+                G4int copyNo = layer * fNumCrystalsPerLayer + crystal;
+                new G4PVPlacement(rot, position, fLogicCrystal, "physCalorimeter", logicECAL, false, copyNo, true);
+            }
+        }
+
+        // Scoring plane at calorimeter exit
+        auto* solidScoringCaloExit = new G4Box("solidScoringCaloExit", fCaloSizeXY/2., fCaloSizeXY/2., scoringHalfThickness);
+        fLogicScoringCaloExit = new G4LogicalVolume(solidScoringCaloExit,
+                                                    fMatVacuum,
+                                                    "logicScoringCaloExit");
+        auto* scoringExitVis = new G4VisAttributes(G4Colour(1.0, 0.0, 0.0, 1.0));
+        scoringExitVis->SetForceSolid(true);
+        fLogicScoringCaloExit->SetVisAttributes(scoringExitVis);
+        
+        zPos += ecalDepth/2.;
+        new G4PVPlacement(0, G4ThreeVector(0., 0., zPos), logicECAL, "physECAL", worldLV, false, 0, true);
+        zPos += ecalDepth/2.;
+        
+        G4double caloExitZ = zPos + 0.1*mm + scoringHalfThickness;
+        new G4PVPlacement(0, G4ThreeVector(0., 0., caloExitZ),
+                          fLogicScoringCaloExit, "physScoringCaloExit",
+                          worldLV, false, 0, true);
+        
+        G4cout << "ECAL back face absolute Z: " << zPos/cm << " cm" << G4endl;
+        G4cout << "Calo exit scoring absolute Z: " << caloExitZ/cm << " cm" << G4endl;
+    }
 }
 
 void DamsaDetectorConstruction::ConstructSDandField()
