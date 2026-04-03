@@ -1,0 +1,329 @@
+#ifndef FLUXDATA_H
+#define FLUXDATA_H
+
+#include "globals.hh"
+#include "G4SystemOfUnits.hh"
+#include <vector>
+#include <fstream>
+#include <iomanip>
+#include <map>
+#include <sys/stat.h>
+
+// Structure to hold complete particle information for flux extraction
+// Used primarily for photon flux output to alplib
+struct FluxParticle {
+    G4double energy;      // Kinetic energy (MeV)
+    G4double time;        // Global time (ns)
+    G4double x, y, z;     // Position (mm)
+    G4double px, py, pz;  // Momentum direction (unit vector)
+    G4double weight;      // Statistical weight (for biasing, default 1.0)
+    G4int pdgCode;        // PDG particle code
+    G4int trackID;        // Track ID for deduplication
+    G4int eventID;        // Event ID for correlation
+    
+    FluxParticle() : energy(0), time(0), x(0), y(0), z(0),
+                     px(0), py(0), pz(1), weight(1.0),
+                     pdgCode(0), trackID(0), eventID(0) {}
+};
+
+// Class to collect and export photon flux data for alplib integration
+class DamsaFluxCollector {
+public:
+    static DamsaFluxCollector* Instance();
+    
+    // Record a photon crossing the target exit plane
+    void RecordPhoton(G4double energy, G4double time,
+                      G4double x, G4double y, G4double z,
+                      G4double px, G4double py, G4double pz,
+                      G4int trackID, G4int eventID, G4double weight = 1.0);
+    
+    // Record any particle (for background studies)
+    void RecordParticle(G4int pdgCode, G4double energy, G4double time,
+                        G4double x, G4double y, G4double z,
+                        G4double px, G4double py, G4double pz,
+                        G4int trackID, G4int eventID, G4double weight = 1.0);
+    
+    // Export functions
+    void WriteCSV(const G4String& filename) const;
+    void WritePhotonFluxCSV(const G4String& filename) const;
+    void WriteBackgroundCSV(const G4String& filename) const;
+    
+    // Get binned photon spectrum for quick alplib input
+    // Returns map of energy bin center (MeV) -> count
+    std::map<G4double, G4int> GetBinnedPhotonSpectrum(G4double binWidth = 1.0*MeV) const;
+    
+    // Write alplib-compatible flux file (energy, rate format)
+    void WriteAlplibFlux(const G4String& filename, G4double nPrimaries, 
+                         G4double beamCurrent = 62.5e-6) const;
+    
+    // Statistics
+    G4int GetPhotonCount() const { return fPhotons.size(); }
+    G4int GetNeutronCount() const;
+    G4int GetTotalParticleCount() const { return fAllParticles.size(); }
+    
+    // Clear data between runs
+    void Reset();
+    
+    // Access raw data (for ROOT ntuple filling)
+    const std::vector<FluxParticle>& GetPhotons() const { return fPhotons; }
+    const std::vector<FluxParticle>& GetAllParticles() const { return fAllParticles; }
+    
+private:
+    DamsaFluxCollector();
+    ~DamsaFluxCollector();
+    static DamsaFluxCollector* fInstance;
+    
+    std::vector<FluxParticle> fPhotons;        // Photons only (for signal)
+    std::vector<FluxParticle> fAllParticles;   // All particles (for background)
+};
+
+// Implementation
+
+inline DamsaFluxCollector* DamsaFluxCollector::fInstance = nullptr;
+
+inline DamsaFluxCollector* DamsaFluxCollector::Instance()
+{
+    if (!fInstance) {
+        fInstance = new DamsaFluxCollector();
+    }
+    return fInstance;
+}
+
+inline DamsaFluxCollector::DamsaFluxCollector() {}
+inline DamsaFluxCollector::~DamsaFluxCollector() {}
+
+inline void DamsaFluxCollector::RecordPhoton(G4double energy, G4double time,
+                                              G4double x, G4double y, G4double z,
+                                              G4double px, G4double py, G4double pz,
+                                              G4int trackID, G4int eventID, G4double weight)
+{
+    FluxParticle p;
+    p.energy = energy;
+    p.time = time;
+    p.x = x;
+    p.y = y;
+    p.z = z;
+    p.px = px;
+    p.py = py;
+    p.pz = pz;
+    p.weight = weight;
+    p.pdgCode = 22;  // Photon PDG code
+    p.trackID = trackID;
+    p.eventID = eventID;
+    fPhotons.push_back(p);
+}
+
+inline void DamsaFluxCollector::RecordParticle(G4int pdgCode, G4double energy, G4double time,
+                                                G4double x, G4double y, G4double z,
+                                                G4double px, G4double py, G4double pz,
+                                                G4int trackID, G4int eventID, G4double weight)
+{
+    FluxParticle p;
+    p.pdgCode = pdgCode;
+    p.energy = energy;
+    p.time = time;
+    p.x = x;
+    p.y = y;
+    p.z = z;
+    p.px = px;
+    p.py = py;
+    p.pz = pz;
+    p.weight = weight;
+    p.trackID = trackID;
+    p.eventID = eventID;
+    fAllParticles.push_back(p);
+}
+
+inline void DamsaFluxCollector::Reset()
+{
+    fPhotons.clear();
+    fAllParticles.clear();
+}
+
+inline G4int DamsaFluxCollector::GetNeutronCount() const
+{
+    G4int count = 0;
+    for (const auto& p : fAllParticles) {
+        if (p.pdgCode == 2112) count++;  // Neutron PDG code
+    }
+    return count;
+}
+
+inline void DamsaFluxCollector::WriteCSV(const G4String& filename) const
+{
+    mkdir("output", 0755);
+    std::string fullPath = "output/" + filename;
+    std::ofstream outFile(fullPath);
+    
+    if (!outFile.is_open()) {
+        G4cout << "ERROR: Could not open file " << fullPath << " for writing!" << G4endl;
+        return;
+    }
+    
+    // CSV header
+    outFile << "pdg,energy_MeV,time_ns,x_mm,y_mm,z_mm,px,py,pz,weight,trackID,eventID" << std::endl;
+    
+    // Write all particles
+    for (const auto& p : fAllParticles) {
+        outFile << p.pdgCode << ","
+                << std::scientific << std::setprecision(6)
+                << p.energy/MeV << ","
+                << p.time/ns << ","
+                << p.x/mm << ","
+                << p.y/mm << ","
+                << p.z/mm << ","
+                << p.px << ","
+                << p.py << ","
+                << p.pz << ","
+                << p.weight << ","
+                << p.trackID << ","
+                << p.eventID << std::endl;
+    }
+    
+    outFile.close();
+    G4cout << "Flux data written to: " << fullPath << " (" << fAllParticles.size() << " particles)" << G4endl;
+}
+
+inline void DamsaFluxCollector::WritePhotonFluxCSV(const G4String& filename) const
+{
+    mkdir("output", 0755);
+    std::string fullPath = "output/" + filename;
+    std::ofstream outFile(fullPath);
+    
+    if (!outFile.is_open()) {
+        G4cout << "ERROR: Could not open file " << fullPath << " for writing!" << G4endl;
+        return;
+    }
+    
+    // CSV header for photon flux
+    outFile << "energy_MeV,time_ns,x_mm,y_mm,z_mm,px,py,pz,weight,trackID,eventID" << std::endl;
+    
+    for (const auto& p : fPhotons) {
+        outFile << std::scientific << std::setprecision(6)
+                << p.energy/MeV << ","
+                << p.time/ns << ","
+                << p.x/mm << ","
+                << p.y/mm << ","
+                << p.z/mm << ","
+                << p.px << ","
+                << p.py << ","
+                << p.pz << ","
+                << p.weight << ","
+                << p.trackID << ","
+                << p.eventID << std::endl;
+    }
+    
+    outFile.close();
+    G4cout << "Photon flux written to: " << fullPath << " (" << fPhotons.size() << " photons)" << G4endl;
+}
+
+inline void DamsaFluxCollector::WriteBackgroundCSV(const G4String& filename) const
+{
+    mkdir("output", 0755);
+    std::string fullPath = "output/" + filename;
+    std::ofstream outFile(fullPath);
+    
+    if (!outFile.is_open()) {
+        G4cout << "ERROR: Could not open file " << fullPath << " for writing!" << G4endl;
+        return;
+    }
+    
+    // CSV header for background (neutrons, EM particles)
+    outFile << "pdg,particle_name,energy_MeV,time_ns,x_mm,y_mm,z_mm,px,py,pz,weight,trackID,eventID" << std::endl;
+    
+    for (const auto& p : fAllParticles) {
+        // Skip photons (they're signal, not background)
+        if (p.pdgCode == 22) continue;
+        
+        // Map PDG to name for readability
+        std::string name;
+        switch(p.pdgCode) {
+            case 2112: name = "neutron"; break;
+            case 2212: name = "proton"; break;
+            case 11: name = "e-"; break;
+            case -11: name = "e+"; break;
+            case 211: name = "pi+"; break;
+            case -211: name = "pi-"; break;
+            case 111: name = "pi0"; break;
+            default: name = "other"; break;
+        }
+        
+        outFile << p.pdgCode << ","
+                << name << ","
+                << std::scientific << std::setprecision(6)
+                << p.energy/MeV << ","
+                << p.time/ns << ","
+                << p.x/mm << ","
+                << p.y/mm << ","
+                << p.z/mm << ","
+                << p.px << ","
+                << p.py << ","
+                << p.pz << ","
+                << p.weight << ","
+                << p.trackID << ","
+                << p.eventID << std::endl;
+    }
+    
+    outFile.close();
+    G4cout << "Background data written to: " << fullPath << G4endl;
+}
+
+inline std::map<G4double, G4int> DamsaFluxCollector::GetBinnedPhotonSpectrum(G4double binWidth) const
+{
+    std::map<G4double, G4int> spectrum;
+    
+    for (const auto& p : fPhotons) {
+        // Bin center
+        G4int binIndex = static_cast<G4int>(p.energy / binWidth);
+        G4double binCenter = (binIndex + 0.5) * binWidth;
+        spectrum[binCenter] += static_cast<G4int>(p.weight);
+    }
+    
+    return spectrum;
+}
+
+inline void DamsaFluxCollector::WriteAlplibFlux(const G4String& filename, G4double nPrimaries,
+                                                 G4double beamCurrent) const
+{
+    mkdir("output", 0755);
+    std::string fullPath = "output/" + filename;
+    std::ofstream outFile(fullPath);
+    
+    if (!outFile.is_open()) {
+        G4cout << "ERROR: Could not open file " << fullPath << " for writing!" << G4endl;
+        return;
+    }
+    
+    // Calculate electrons per second from beam current
+    // I = Q/t, electrons/s = I / e
+    G4double electronsPerSecond = beamCurrent / (1.602176634e-19);  // e in coulombs
+    
+    // Scale factor: photons per electron * electrons per second = photons per second
+    G4double scaleFactor = electronsPerSecond / nPrimaries;
+    
+    // Header comment
+    outFile << "# Photon flux at target exit for alplib input" << std::endl;
+    outFile << "# Generated by DAMSA Geant4 simulation" << std::endl;
+    outFile << "# Beam current: " << beamCurrent*1e6 << " uA" << std::endl;
+    outFile << "# Primary electrons simulated: " << nPrimaries << std::endl;
+    outFile << "# Scale factor: " << scaleFactor << " (photons/electron * electrons/s)" << std::endl;
+    outFile << "# Format: energy_MeV, rate_per_second" << std::endl;
+    outFile << "#" << std::endl;
+    
+    // Get binned spectrum (1 MeV bins)
+    auto spectrum = GetBinnedPhotonSpectrum(1.0*MeV);
+    
+    for (const auto& bin : spectrum) {
+        G4double energyMeV = bin.first / MeV;
+        G4double rate = bin.second * scaleFactor;
+        
+        outFile << std::fixed << std::setprecision(3) << energyMeV << ","
+                << std::scientific << std::setprecision(6) << rate << std::endl;
+    }
+    
+    outFile.close();
+    G4cout << "Alplib flux file written to: " << fullPath << G4endl;
+    G4cout << "  " << spectrum.size() << " energy bins, " << fPhotons.size() << " total photons" << G4endl;
+}
+
+#endif

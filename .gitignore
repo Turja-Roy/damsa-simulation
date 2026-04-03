@@ -2,3 +2,26 @@ build/*
 AGENTS.md
 Ref/*
 Reading/*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+*.egg
+
+# Optimization outputs
+optimization_results/
+optimization_cache/
+output/
+
+# alplib (external dependency)
+alplib/
+
+# ROOT output
+*.root
+
+# Temporary files
+*.tmp
+*.bak
