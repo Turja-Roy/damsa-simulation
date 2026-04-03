@@ -106,10 +106,17 @@ class ObjectiveFunctions:
                  axion_coupling: float = 1e-4,
                  exposure_days: float = 30.0,
                  detector_params: Optional[Dict] = None):
+        """
+        Initialize objective functions.
         
+        Note on coupling units:
+            axion_coupling is in GeV^-1 (standard physics convention).
+            alplib internally uses MeV^-1, so we convert when calling alplib.
+        """
         self.beam_current = beam_current_uA * 1e-6  # Convert to Amperes
         self.axion_mass = axion_mass_MeV
-        self.axion_coupling = axion_coupling
+        self.axion_coupling = axion_coupling  # GeV^-1
+        self.axion_coupling_mev = axion_coupling / 1000.0  # Convert to MeV^-1 for alplib
         self.exposure_days = exposure_days
         
         # Default detector parameters
@@ -204,6 +211,7 @@ class ObjectiveFunctions:
         try:
             det_dist_m = gap_cm / 100.0
             
+            # Note: alplib expects coupling in MeV^-1
             flux_obj = FluxPrimakoffIsotropic(
                 photon_flux=flux,
                 target=Material("W"),
@@ -211,7 +219,7 @@ class ObjectiveFunctions:
                 det_length=self.detector['length_m'],
                 det_area=self.detector['area_m2'],
                 axion_mass=self.axion_mass,
-                axion_coupling=self.axion_coupling,
+                axion_coupling=self.axion_coupling_mev,  # Use MeV^-1 units
                 n_samples=10000
             )
             

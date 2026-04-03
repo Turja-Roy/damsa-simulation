@@ -145,7 +145,8 @@ class ALPSignalVisualizer:
         alp_mass_MeV : float
             ALP mass in MeV
         coupling : float
-            ALP-photon coupling g_aγγ
+            ALP-photon coupling g_aγγ in GeV^-1 (standard convention)
+            Note: alplib internally uses MeV^-1, so we convert.
         detector_distance_m : float
             Distance to detector in meters
             
@@ -180,42 +181,54 @@ class ALPSignalVisualizer:
         
         # Create alplib flux object using Primakoff production
         try:
-            flux = alplib_fluxes.FluxPrimakoffIsotropic(
-                photon_energies_MeV=energies,
-                target_z=74,  # Tungsten
-                target_a=183.84
+            # Convert to alplib format: [[energy, weight], ...]
+            # Each photon gets weight=1 (will be scaled by beam current externally)
+            photon_flux_array = np.column_stack([energies, np.ones_like(energies)])
+            
+            # Create target material
+            target_material = alplib_materials.Material("W")
+            
+            # Create detector material for event generation
+            detector_material = alplib_materials.Material("CsI")
+            
+            # Convert coupling from GeV^-1 to MeV^-1 (alplib uses MeV^-1)
+            coupling_mev = coupling / 1000.0
+            
+            # Create Primakoff flux generator
+            # Note: alplib uses meters for distances, MeV^-1 for coupling
+            flux_obj = alplib_fluxes.FluxPrimakoffIsotropic(
+                photon_flux=photon_flux_array,
+                target=target_material,
+                det_dist=detector_distance_m,
+                det_length=1.0,  # 1 meter detector length
+                det_area=0.25,   # 50x50 cm detector area
+                axion_mass=alp_mass_MeV,
+                axion_coupling=coupling_mev,  # MeV^-1
+                n_samples=1000
             )
             
-            # Set ALP parameters
-            flux.set_alp_mass(alp_mass_MeV)
-            flux.set_coupling(coupling)
+            # Simulate ALP production from photon flux
+            flux_obj.simulate()
             
-            # Calculate expected events using PhotonEventGenerator
-            detector_material = alplib_materials.Material('CsI')
+            # Propagate ALPs and calculate decay probabilities
+            flux_obj.propagate()
+            
+            # Create event generator for photon channel (ALP -> gamma gamma)
             generator = alplib_generators.PhotonEventGenerator(
-                flux,
+                flux_obj,
                 detector_material
             )
             
-            # Get decay events
-            events = generator.decays(
+            # Get total decay events for exposure period
+            # decays() returns a scalar (total number of events)
+            n_events = generator.decays(
                 days_exposure=self.exposure_days,
                 threshold=0.1  # MeV threshold
             )
             
-            # Extract event properties
-            if hasattr(events, '__len__'):
-                n_events = len(events)
-                if n_events > 0 and hasattr(events[0], 'energy'):
-                    decay_energies = np.array([e.energy for e in events])
-                    decay_angles = np.array([e.theta for e in events]) if hasattr(events[0], 'theta') else None
-                else:
-                    decay_energies = np.array([])
-                    decay_angles = None
-            else:
-                n_events = int(events) if events else 0
-                decay_energies = np.array([])
-                decay_angles = None
+            # Get decay energies from flux object (axion energies ~ photon energies)
+            decay_energies = np.array(flux_obj.axion_energy) if hasattr(flux_obj, 'axion_energy') else np.array([])
+            decay_angles = np.array(flux_obj.axion_angle) if hasattr(flux_obj, 'axion_angle') and len(flux_obj.axion_angle) > 0 else None
             
             result = {
                 'alp_mass_MeV': alp_mass_MeV,

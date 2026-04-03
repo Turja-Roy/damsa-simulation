@@ -49,6 +49,7 @@ try:
     )
 except ImportError:
     BOTORCH_AVAILABLE = False
+    BOConfig = None  # Placeholder when BoTorch unavailable
 
 try:
     from optimization_problem import PYMOO_AVAILABLE
@@ -520,10 +521,13 @@ def main():
         objectives=args.objectives
     )
     
-    bo_config = BOConfig(
-        n_initial=args.n_bo_init,
-        n_iterations=args.n_bo_iter
-    )
+    # Create BO config only if BoTorch is available
+    bo_config = None
+    if BOTORCH_AVAILABLE and BOConfig is not None:
+        bo_config = BOConfig(
+            n_initial=args.n_bo_init,
+            n_iterations=args.n_bo_iter
+        )
     
     # Create output directory
     if args.output_dir:
@@ -549,6 +553,8 @@ def main():
     # Run optimization
     try:
         if args.mode == 'hybrid':
+            if bo_config is None:
+                raise ImportError("BoTorch required for hybrid mode. Use --mode nsga-only")
             results = run_hybrid_optimization(
                 opt_config=opt_config,
                 bo_config=bo_config,
@@ -559,6 +565,8 @@ def main():
             )
         
         elif args.mode == 'bo-only':
+            if bo_config is None:
+                raise ImportError("BoTorch required for bo-only mode. Use --mode nsga-only")
             results = run_bo_only_optimization(
                 opt_config=opt_config,
                 bo_config=bo_config,
