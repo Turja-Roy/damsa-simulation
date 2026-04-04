@@ -4,8 +4,6 @@ Geant4 Runner Module for DAMSA Optimization
 
 This module provides a Python interface to run Geant4 simulations
 with different geometry parameters and collect results.
-
-Author: DAMSA Collaboration
 """
 
 import subprocess
@@ -113,7 +111,7 @@ class Geant4Runner:
     """
     
     def __init__(self, 
-                 executable: str = "./build/damsa",
+                 executable: str = "./build/damsa_opt",
                  base_dir: str = ".",
                  n_events: int = 1000,
                  cache_dir: Optional[str] = None,
@@ -264,32 +262,28 @@ GAP_CM {gap}
         try:
             start_time = time.time()
             
-            # Create macro file
-            macro_path = self._create_macro(workdir, n_events)
-            
-            # Create output directory
+            # Create output directory in working directory
             output_dir = workdir / "output"
             output_dir.mkdir()
-            
-            # Run simulation
-            # Note: We need to modify the executable to accept command-line geometry parameters
-            # For now, we'll use environment variables or a config file approach
-            env = os.environ.copy()
-            env['DAMSA_TARGET_Z'] = str(target_z)
-            env['DAMSA_TARGET_X'] = str(target_x)
-            env['DAMSA_TARGET_Y'] = str(target_y)
-            env['DAMSA_GAP'] = str(gap)
-            env['DAMSA_OUTPUT_DIR'] = str(output_dir)
             
             if self.verbose:
                 print(f"Running simulation: target=({target_x}x{target_y}x{target_z}) cm, gap={gap} cm")
             
-            # Execute Geant4
-            cmd = [str(self.executable), str(macro_path)]
+            # Execute damsa_opt with command-line arguments
+            cmd = [
+                str(self.executable),
+                "--target-z", str(target_z),
+                "--target-xy", str(target_x),  # Square target: x=y
+                "--gap", str(gap),
+                "--n-events", str(n_events),
+                "--output-dir", str(output_dir),
+            ]
+            if not self.verbose:
+                cmd.append("--quiet")
+            
             result = subprocess.run(
                 cmd,
                 cwd=str(self.base_dir),
-                env=env,
                 capture_output=True,
                 text=True,
                 timeout=3600  # 1 hour timeout
@@ -303,8 +297,16 @@ GAP_CM {gap}
                 # Return empty result
                 return self._empty_result(target_z, target_x, target_y, gap, n_events, run_time)
             
-            # Parse output files
-            sim_result = self._parse_output(output_dir, target_z, target_x, target_y, 
+            # Parse output files (output is in workdir/output, but FluxData.h writes to ./output)
+            # Check both locations
+            if (output_dir / "photon_flux_target_exit.csv").exists():
+                actual_output = output_dir
+            elif (self.base_dir / "output" / "photon_flux_target_exit.csv").exists():
+                actual_output = self.base_dir / "output"
+            else:
+                actual_output = output_dir
+            
+            sim_result = self._parse_output(actual_output, target_z, target_x, target_y, 
                                            gap, n_events, run_time)
             
             # Cache result

@@ -94,7 +94,7 @@ class OptimizationConfig:
     # Physics parameters
     beam_current_uA: float = 62.5
     axion_mass_MeV: float = 100.0
-    axion_coupling: float = 1e-4
+    axion_coupling: float = 1e-3
     exposure_days: float = 30.0
     
     # Simulation parameters

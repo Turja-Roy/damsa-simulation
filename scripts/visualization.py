@@ -678,7 +678,7 @@ def generate_report(
     obj_names: List[str] = None,
     flux_file: str = None,
     alp_mass_MeV: float = 100.0,
-    alp_coupling: float = 1e-4,
+    alp_coupling: float = 1e-3,
     generate_root_plots: bool = True,
     generate_alp_plots: bool = True
 ) -> None:
@@ -1014,7 +1014,7 @@ def generate_alp_signal_plots(
     flux_file: str,
     output_dir: str,
     alp_mass_MeV: float = 100.0,
-    coupling: float = 1e-4
+    coupling: float = 1e-3
 ) -> None:
     """
     Generate ALP signal visualization plots.
@@ -1064,8 +1064,8 @@ if __name__ == "__main__":
                        help="Path to photon flux file for ALP calculations")
     parser.add_argument("--alp-mass", type=float, default=100.0,
                        help="ALP mass in MeV (default: 100)")
-    parser.add_argument("--alp-coupling", type=float, default=1e-4,
-                       help="ALP-photon coupling (default: 1e-4)")
+    parser.add_argument("--alp-coupling", type=float, default=1e-3,
+                       help="ALP-photon coupling (default: 1e-3)")
     parser.add_argument("--no-root-plots", action="store_true",
                        help="Skip ROOT summary plot generation")
     parser.add_argument("--no-alp-plots", action="store_true",

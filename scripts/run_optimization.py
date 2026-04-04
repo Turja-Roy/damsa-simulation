@@ -469,8 +469,8 @@ Examples:
         help='ALP mass in MeV (default: 100)'
     )
     parser.add_argument(
-        '--coupling', type=float, default=1e-4,
-        help='ALP-photon coupling (default: 1e-4)'
+        '--coupling', type=float, default=1e-3,
+        help='ALP-photon coupling (default: 1e-3)'
     )
     parser.add_argument(
         '--exposure', type=float, default=30.0,

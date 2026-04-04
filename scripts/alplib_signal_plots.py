@@ -1,20 +1,27 @@
 #!/usr/bin/env python3
 """
-ALP Signal Visualization Module for DAMSA Optimization
+ALP Signal Visualization and Analysis Module for DAMSA Optimization
 
-This module generates visualization plots for ALP (Axion-Like Particle) signal
-calculations using alplib. It creates:
-1. Energy distribution of ALP decay photons
-2. Angular distribution of ALP decays
-3. Signal rate vs ALP mass
-4. Expected event counts vs coupling strength
+This module provides comprehensive tools for ALP (Axion-Like Particle) signal
+calculations and visualization using alplib. It includes:
+
+1. Flux loading and conversion from Geant4 output to alplib format
+2. ALP signal calculation via Primakoff production
+3. Energy and angular distribution plotting
+4. Mass and coupling scans with sensitivity contours
 5. Comparison between different detector configurations
 
 REQUIRES alplib to be installed/available. No mock calculations.
 
 Usage:
+    # Single configuration analysis
     python alplib_signal_plots.py --flux-file photon_flux.csv --alp-mass 100
-    python alplib_signal_plots.py --results-dir optimization_results/
+    
+    # With scaling for beam current
+    python alplib_signal_plots.py --flux-file photon_flux.csv --nprimaries 1000 --alp-mass 100
+    
+    # Full report with all plots
+    python alplib_signal_plots.py --flux-file photon_flux.csv --full-report
 
 Author: DAMSA Collaboration
 """
@@ -56,6 +63,78 @@ try:
 except ImportError:
     ALPLIB_AVAILABLE = False
 
+# =============================================================================
+# ALP PROXY MASS CALCULATION
+# =============================================================================
+# 
+# The opening angle for a → γγ decay is: θ_open ≈ 2*m_a/E_a (ultra-relativistic)
+# This depends only on the boost γ = E_a/m_a, not the absolute values.
+#
+# To preserve opening angle with a proxy ALP mass (when using lower-energy photons
+# from a beam dump), use:
+#   m_proxy = E_proxy / gamma_target
+#   where gamma_target = E_target / m_target (the real ALP scenario you care about)
+#
+# Example: Preserve opening angle of 100 MeV ALP at E_a = 1 GeV (γ = 10)
+#   - With 80 MeV photons from dump: m_proxy = 80/10 = 8 MeV
+#   - With 60 MeV photons from dump: m_proxy = 60/10 = 6 MeV
+#   - With 100 MeV photons from dump: m_proxy = 100/10 = 10 MeV
+#
+# IMPORTANT CAVEAT: This preserves opening angle but NOT decay length.
+# Decay length scales as L ∝ γ/m_a³, so the proxy will have a much longer
+# decay length than the real ALP. This is fine for geometry optimization
+# (detector placement, angular coverage) but NOT for absolute signal rates.
+# =============================================================================
+
+# Target ALP scenario for proxy calculations
+TARGET_ALP_MASS_MEV = 100.0     # Target ALP mass you want to preserve opening angle for (MeV)
+TARGET_ALP_ENERGY_MEV = 1000.0  # Assumed typical ALP energy from 8 GeV electron beam (MeV)
+# gamma = 10 for the target scenario
+
+
+def calculate_proxy_mass(photon_energy_MeV: float,
+                         target_alp_mass_MeV: float = TARGET_ALP_MASS_MEV,
+                         target_alp_energy_MeV: float = TARGET_ALP_ENERGY_MEV) -> float:
+    """
+    Calculate proxy ALP mass that preserves opening angle.
+    
+    Parameters
+    ----------
+    photon_energy_MeV : float
+        Available photon energy from beam dump (MeV)
+    target_alp_mass_MeV : float
+        Target ALP mass to preserve opening angle for (MeV)
+    target_alp_energy_MeV : float
+        Assumed typical ALP energy in real scenario (MeV)
+    
+    Returns
+    -------
+    float
+        Proxy ALP mass in MeV that gives same opening angle
+    """
+    gamma_target = target_alp_energy_MeV / target_alp_mass_MeV
+    proxy_mass = photon_energy_MeV / gamma_target
+    return proxy_mass
+
+
+def get_default_proxy_mass(photon_energy_MeV: float = 80.0) -> float:
+    """
+    Get default proxy mass for typical photon energies from tungsten dump.
+    
+    Default assumes target ALP scenario: m_a = 100 MeV at E_a = 1 GeV (γ = 10)
+    
+    Parameters
+    ----------
+    photon_energy_MeV : float
+        Typical photon energy from dump (default: 80 MeV)
+    
+    Returns
+    -------
+    float
+        Proxy ALP mass in MeV
+    """
+    return calculate_proxy_mass(photon_energy_MeV, TARGET_ALP_MASS_MEV, TARGET_ALP_ENERGY_MEV)
+
 
 def check_alplib_available():
     """Check if alplib is available and raise error if not."""
@@ -65,6 +144,61 @@ def check_alplib_available():
             "Clone from: https://github.com/athompson-git/alplib\n"
             "Then add to PYTHONPATH or place in project root."
         )
+
+
+def load_flux_for_alplib(csv_path: str, n_primaries: int, 
+                         beam_current_uA: float = 62.5) -> np.ndarray:
+    """
+    Load Geant4 photon flux and convert to alplib format with proper scaling.
+    
+    This function reads the raw photon flux CSV from Geant4 simulation,
+    bins the energies, and scales by beam current to get photons/second.
+    
+    Parameters
+    ----------
+    csv_path : str
+        Path to photon flux CSV (must have 'energy_MeV' or 'energy' column)
+    n_primaries : int
+        Number of primary electrons simulated
+    beam_current_uA : float
+        Beam current in microamperes (default: 62.5 for LCLS-II)
+        
+    Returns
+    -------
+    np.ndarray
+        2D array [[energy_MeV, rate_per_second], ...] suitable for alplib
+    """
+    df = pd.read_csv(csv_path)
+    
+    # Handle different column naming conventions
+    if 'energy_MeV' in df.columns:
+        energies = df['energy_MeV'].values
+    elif 'energy' in df.columns:
+        energies = df['energy'].values
+    else:
+        raise ValueError("CSV must have 'energy_MeV' or 'energy' column")
+    
+    weights = df['weight'].values if 'weight' in df.columns else np.ones(len(energies))
+    
+    # Calculate scaling factor: photons per electron -> photons per second
+    e_charge = 1.602176634e-19
+    beam_current = beam_current_uA * 1e-6
+    electrons_per_second = beam_current / e_charge
+    scale_factor = electrons_per_second / n_primaries
+    
+    # Bin the photon energies (1 MeV bins)
+    max_energy = np.ceil(energies.max())
+    bins = np.arange(0, max_energy + 1, 1.0)
+    counts, bin_edges = np.histogram(energies, bins=bins, weights=weights)
+    bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+    
+    rates = counts * scale_factor
+    
+    # Create flux array (only non-zero bins)
+    flux = np.column_stack([bin_centers, rates])
+    flux = flux[flux[:, 1] > 0]
+    
+    return flux
 
 
 class ALPSignalVisualizer:
@@ -121,6 +255,13 @@ class ALPSignalVisualizer:
         df = pd.read_csv(flux_file)
         
         # Expected columns: energy, theta, phi, x, y, z, weight
+        # Handle both 'energy' and 'energy_MeV' column names
+        if 'energy_MeV' in df.columns:
+            df = df.rename(columns={'energy_MeV': 'energy'})
+        elif 'energy_GeV' in df.columns:
+            df['energy'] = df['energy_GeV'] * 1000  # Convert to MeV
+            df = df.drop(columns=['energy_GeV'])
+        
         required_cols = ['energy']
         for col in required_cols:
             if col not in df.columns:
@@ -132,7 +273,7 @@ class ALPSignalVisualizer:
         self,
         flux_df: pd.DataFrame,
         alp_mass_MeV: float = 100.0,
-        coupling: float = 1e-4,
+        coupling: float = 1e-3,
         detector_distance_m: float = 1.0
     ) -> Dict[str, Any]:
         """
@@ -404,7 +545,7 @@ class ALPSignalVisualizer:
         flux_df: pd.DataFrame,
         mass_range: Tuple[float, float] = (10, 500),
         n_points: int = 20,
-        coupling: float = 1e-4,
+        coupling: float = 1e-3,
         save: bool = True
     ) -> Any:
         """
@@ -560,7 +701,7 @@ class ALPSignalVisualizer:
         self,
         flux_file: str,
         alp_mass_MeV: float = 100.0,
-        coupling: float = 1e-4
+        coupling: float = 1e-3
     ) -> Dict[str, Any]:
         """
         Generate full signal visualization report.
@@ -655,17 +796,44 @@ def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
         description="Generate ALP signal visualization plots",
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    # Basic usage with raw flux DataFrame
+    python alplib_signal_plots.py -f output/photon_flux.csv -m 100
+    
+    # With proper beam current scaling (recommended for absolute rates)
+    python alplib_signal_plots.py -f output/photon_flux.csv --nprimaries 1000 -m 100
+    
+    # Full report with all scans
+    python alplib_signal_plots.py -f output/photon_flux.csv --nprimaries 1000 --full-report
+        """
     )
     
     parser.add_argument('--flux-file', '-f', required=True,
                        help='Path to photon flux CSV file')
-    parser.add_argument('--alp-mass', '-m', type=float, default=100.0,
-                       help='ALP mass in MeV (default: 100)')
-    parser.add_argument('--coupling', '-g', type=float, default=1e-4,
-                       help='ALP-photon coupling (default: 1e-4)')
+    parser.add_argument('--alp-mass', '-m', type=float, default=None,
+                       help='ALP mass in MeV (default: auto-calculated proxy mass if --use-proxy, else 100)')
+    parser.add_argument('--use-proxy', action='store_true',
+                       help='Use proxy ALP mass to preserve opening angle (requires --photon-energy)')
+    parser.add_argument('--photon-energy', type=float, default=80.0,
+                       help='Typical photon energy from dump in MeV (default: 80, used with --use-proxy)')
+    parser.add_argument('--coupling', '-g', type=float, default=1e-3,
+                       help='ALP-photon coupling in GeV^-1 (default: 1e-3)')
     parser.add_argument('--output', '-o', default='alp_signal_plots',
                        help='Output directory (default: alp_signal_plots)')
+    
+    # Beam scaling parameters
+    parser.add_argument('--nprimaries', '-n', type=int, default=None,
+                       help='Number of primary electrons simulated (enables beam scaling)')
+    parser.add_argument('--beam-current', type=float, default=62.5,
+                       help='Beam current in μA (default: 62.5 for LCLS-II)')
+    
+    # Detector parameters
+    parser.add_argument('--det-dist', type=float, default=1.0,
+                       help='Target-detector distance in m (default: 1.0)')
+    parser.add_argument('--exposure', type=float, default=30.0,
+                       help='Exposure time in days (default: 30)')
     
     # Scan options
     parser.add_argument('--mass-scan', action='store_true',
@@ -680,21 +848,52 @@ def main():
     args = parser.parse_args()
     
     visualizer = ALPSignalVisualizer(args.output)
+    visualizer.exposure_days = args.exposure
+    
+    # If nprimaries provided, use scaled flux loading
+    if args.nprimaries is not None:
+        print(f"Loading flux with beam scaling: {args.nprimaries} primaries, {args.beam_current} μA")
+        flux_array = load_flux_for_alplib(args.flux_file, args.nprimaries, args.beam_current)
+        print(f"  Energy range: {flux_array[:, 0].min():.1f} - {flux_array[:, 0].max():.1f} MeV")
+        print(f"  Total rate: {flux_array[:, 1].sum():.3e} photons/second")
+        
+        # Convert to DataFrame format for visualizer compatibility
+        flux_df = pd.DataFrame({
+            'energy': flux_array[:, 0],
+            'weight': flux_array[:, 1]
+        })
+    else:
+        flux_df = visualizer.load_photon_flux(args.flux_file)
+        print(f"Loaded {len(flux_df)} flux entries (no beam scaling)")
+    
+    # Handle proxy mass calculation
+    # Default: Use proxy mass that preserves opening angle of 100 MeV ALP at 1 GeV
+    if args.use_proxy:
+        proxy_mass = calculate_proxy_mass(args.photon_energy, TARGET_ALP_MASS_MEV, TARGET_ALP_ENERGY_MEV)
+        print(f"\n=== Proxy ALP Mass Calculation ===")
+        print(f"Target scenario: m_a = {TARGET_ALP_MASS_MEV} MeV at E_a = {TARGET_ALP_ENERGY_MEV} MeV (γ = {TARGET_ALP_ENERGY_MEV/TARGET_ALP_MASS_MEV})")
+        print(f"Photon energy from dump: {args.photon_energy} MeV")
+        print(f"Proxy ALP mass: {proxy_mass:.2f} MeV")
+        print(f"Opening angle: ~{2*proxy_mass/args.photon_energy*1000:.1f} mrad (same as target)")
+        print(f"================================\n")
+        alp_mass = proxy_mass
+    elif args.alp_mass is None:
+        # Default to 100 MeV if neither --use-proxy nor --alp-mass specified
+        alp_mass = 100.0
+        print(f"\nUsing default ALP mass: {alp_mass} MeV\n")
+    else:
+        alp_mass = args.alp_mass
     
     if args.full_report:
         visualizer.generate_full_report(
             args.flux_file,
-            args.alp_mass,
+            alp_mass,
             args.coupling
         )
     else:
-        # Load flux
-        flux_df = visualizer.load_photon_flux(args.flux_file)
-        print(f"Loaded {len(flux_df)} flux entries")
-        
         # Calculate signal
         result = visualizer.calculate_alp_signal(
-            flux_df, args.alp_mass, args.coupling
+            flux_df, alp_mass, args.coupling, args.det_dist
         )
         print(f"Expected events: {result['n_events']}")
         
@@ -705,7 +904,7 @@ def main():
             visualizer.plot_mass_scan(flux_df, coupling=args.coupling)
         
         if args.coupling_scan:
-            visualizer.plot_coupling_scan(flux_df, alp_mass_MeV=args.alp_mass)
+            visualizer.plot_coupling_scan(flux_df, alp_mass_MeV=alp_mass)
         
         if args.sensitivity:
             visualizer.plot_sensitivity_contour(flux_df)
