@@ -65,6 +65,7 @@ private:
     G4LogicalVolume* fLogicScoringMagnetEntrance;
     G4LogicalVolume* fLogicScoringCaloEntrance;
     G4LogicalVolume* fLogicScoringCaloExit;
+    G4LogicalVolume* fLogicScoringTargetMid;
     G4MagneticField* fMagField;
     
     G4Material* fMatAir;

@@ -108,6 +108,7 @@ inline void CreatePlotDirectories() {
     mkdir("plots", 0755);
     mkdir("plots/png", 0755);
     mkdir("plots/png/TargetExit", 0755);
+    mkdir("plots/png/TargetMid", 0755);
     mkdir("plots/png/MagnetEntrance", 0755);
     mkdir("plots/png/CaloEntrance", 0755);
     mkdir("plots/png/CaloExit", 0755);
@@ -119,6 +120,21 @@ inline void CreatePlotDirectories() {
 // Save canvas in PNG format
 inline void SaveCanvas(TCanvas* c, const std::string& path) {
     c->SaveAs((path + ".png").c_str());
+}
+
+// Save canvas with config prefix (for optimization mode)
+// E.g., path="plots/png/TargetExit/energy_gamma", prefix="Tz10_xy5_G50_"
+// Result: "plots/png/TargetExit/Tz10_xy5_G50_energy_gamma.png"
+inline void SaveCanvasWithPrefix(TCanvas* c, const std::string& dirPath, 
+                                  const std::string& filename, 
+                                  const std::string& configPrefix) {
+    std::string fullPath;
+    if (configPrefix.empty()) {
+        fullPath = dirPath + "/" + filename + ".png";
+    } else {
+        fullPath = dirPath + "/" + configPrefix + filename + ".png";
+    }
+    c->SaveAs(fullPath.c_str());
 }
 
 // Create a normalized copy of a histogram

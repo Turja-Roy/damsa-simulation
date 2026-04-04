@@ -44,12 +44,17 @@ public:
     
     G4bool WasTrackRecorded(G4int trackID, const G4String& location);
     
+    // Config prefix for output filenames (e.g., "Tz10_xy5_G50_")
+    void SetConfigPrefix(const std::string& prefix) { fConfigPrefix = prefix; }
+    std::string GetConfigPrefix() const { return fConfigPrefix; }
+    
 private:
     DamsaAnalysis();
     ~DamsaAnalysis();
     static DamsaAnalysis* fInstance;
     
     std::map<G4String, DamsaLocationData> fLocations;
+    std::string fConfigPrefix;  // Prefix for config-specific filenames
 };
 
 #endif

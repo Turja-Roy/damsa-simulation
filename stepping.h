@@ -91,6 +91,21 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
                 trackID, eventID);
         }
     }
+    // Mid-target scoring plane
+    else if(volumeName == "physScoringTargetMid") {
+        if(!DamsaAnalysis::Instance()->WasTrackRecorded(trackID, "TargetMid")) {
+            DamsaAnalysis::Instance()->RecordParticle(particleName, energy, "TargetMid", angle, trackID, isPrimary);
+            
+            // Also record photons at mid-target for alplib
+            if(particleName == "gamma") {
+                DamsaFluxCollector::Instance()->RecordPhoton(
+                    energy, time,
+                    position.x(), position.y(), position.z(),
+                    momentum.x(), momentum.y(), momentum.z(),
+                    trackID, eventID);
+            }
+        }
+    }
     // Magnet entrance scoring plane
     else if(volumeName == "physScoringMagnetEntrance") {
         if(!DamsaAnalysis::Instance()->WasTrackRecorded(trackID, "MagnetEntrance")) {

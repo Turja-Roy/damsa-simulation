@@ -3,7 +3,8 @@
 TCanvas* CreateOverlayCanvasMap(std::map<G4String, TH1D*>& energyHists,
                                std::map<G4String, TH1D*>& angleHists,
                                const G4String& locationName);
-void WriteEvolutionHistograms(TFile* rootFile, std::map<G4String, DamsaLocationData>& locations);
+void WriteEvolutionHistograms(TFile* rootFile, std::map<G4String, DamsaLocationData>& locations,
+                              const std::string& configPrefix);
 
 DamsaAnalysis* DamsaAnalysis::fInstance = nullptr;
 
@@ -18,6 +19,7 @@ DamsaAnalysis* DamsaAnalysis::Instance()
 DamsaAnalysis::DamsaAnalysis()
 {
     fLocations["TargetExit"] = DamsaLocationData();
+    fLocations["TargetMid"] = DamsaLocationData();
     fLocations["MagnetEntrance"] = DamsaLocationData();
     fLocations["CaloEntrance"] = DamsaLocationData();
     fLocations["CaloExit"] = DamsaLocationData();
@@ -54,7 +56,7 @@ void DamsaAnalysis::RecordParticle(const G4String& particleName, G4double energy
 
 void DamsaAnalysis::PrintSummary()
 {
-    std::vector<G4String> order = {"TargetExit", "MagnetEntrance", "CaloEntrance", "CaloExit"};
+    std::vector<G4String> order = {"TargetExit", "TargetMid", "MagnetEntrance", "CaloEntrance", "CaloExit"};
     for (const G4String& locName : order) {
         fLocations[locName].PrintSummary(locName);
     }
@@ -76,7 +78,7 @@ void DamsaAnalysis::SaveToFile(const G4String& filename)
     outFile << "=== DAMSA Background Analysis Results ===" << std::endl;
     outFile << "=============================================" << std::endl << std::endl;
     
-    std::vector<G4String> order = {"TargetExit", "MagnetEntrance", "CaloEntrance", "CaloExit"};
+    std::vector<G4String> order = {"TargetExit", "TargetMid", "MagnetEntrance", "CaloEntrance", "CaloExit"};
     for (const G4String& locName : order) {
         fLocations[locName].WriteToFile(outFile, locName);
     }
@@ -93,6 +95,9 @@ void DamsaAnalysis::WriteROOTHistograms(const G4String& filename)
     
     CreatePlotDirectories();
     SetPublicationStyle();
+    
+    // Get config prefix for filenames (empty if not in optimize mode)
+    std::string prefix = fConfigPrefix;
     
     std::map<G4String, std::vector<double>> particleEnergies;
     std::map<G4String, std::vector<double>> particleAngles;
@@ -112,7 +117,7 @@ void DamsaAnalysis::WriteROOTHistograms(const G4String& filename)
         }
     }
     
-    std::string rootPath = "plots/damsa_analysis.root";
+    std::string rootPath = "plots/" + prefix + "damsa_analysis.root";
     TFile* rootFile = new TFile(rootPath.c_str(), "RECREATE");
     
     if(!rootFile || rootFile->IsZombie()) {
@@ -232,31 +237,31 @@ void DamsaAnalysis::WriteROOTHistograms(const G4String& filename)
         
         TCanvas* cOverlay = CreateOverlayCanvasMap(energyHists, angleHists, locationName);
         if (cOverlay) {
-            SaveCanvas(cOverlay, ("plots/png/" + locationName + "/overlay").c_str());
+            SaveCanvasWithPrefix(cOverlay, "plots/png/" + locationName, "overlay", prefix);
             delete cOverlay;
         }
         
         TCanvas* c1 = new TCanvas("c1", "", 800, 600);
         for (auto& eh : energyHists) {
             eh.second->Draw("HIST");
-            SaveCanvas(c1, ("plots/png/" + locationName + "/energy_" + eh.first).c_str());
+            SaveCanvasWithPrefix(c1, "plots/png/" + locationName, "energy_" + eh.first, prefix);
         }
         
         c1->SetLogy(0);
         for (auto& ah : angleHists) {
             ah.second->Draw("HIST");
-            SaveCanvas(c1, ("plots/png/" + locationName + "/angle_" + ah.first).c_str());
+            SaveCanvasWithPrefix(c1, "plots/png/" + locationName, "angle_" + ah.first, prefix);
         }
         
         c1->SetRightMargin(0.15);
         for (auto& ch : corrHists) {
             ch.second->Draw("COLZ");
-            SaveCanvas(c1, ("plots/png/" + locationName + "/corr_" + ch.first).c_str());
+            SaveCanvasWithPrefix(c1, "plots/png/" + locationName, "corr_" + ch.first, prefix);
         }
         delete c1;
     }
     
-    WriteEvolutionHistograms(rootFile, fLocations);
+    WriteEvolutionHistograms(rootFile, fLocations, prefix);
     
     rootFile->Close();
     delete rootFile;
@@ -385,7 +390,8 @@ TCanvas* CreateOverlayCanvasMap(std::map<G4String, TH1D*>& energyHists,
     return cOverlay;
 }
 
-void WriteEvolutionHistograms(TFile* rootFile, std::map<G4String, DamsaLocationData>& locations)
+void WriteEvolutionHistograms(TFile* rootFile, std::map<G4String, DamsaLocationData>& locations,
+                              const std::string& prefix)
 {
     rootFile->mkdir("Evolution");
     rootFile->mkdir("Statistics");
@@ -394,12 +400,14 @@ void WriteEvolutionHistograms(TFile* rootFile, std::map<G4String, DamsaLocationD
     
     std::vector<G4String> orderedLocations;
     orderedLocations.push_back("TargetExit");
+    orderedLocations.push_back("TargetMid");
     orderedLocations.push_back("MagnetEntrance");
     orderedLocations.push_back("CaloEntrance");
     orderedLocations.push_back("CaloExit");
     
     std::map<G4String, Color_t> locationColors;
     locationColors["TargetExit"] = kRed;
+    locationColors["TargetMid"] = kOrange;
     locationColors["MagnetEntrance"] = kBlue;
     locationColors["CaloEntrance"] = kGreen+2;
     locationColors["CaloExit"] = kMagenta;
@@ -579,7 +587,7 @@ void WriteEvolutionHistograms(TFile* rootFile, std::map<G4String, DamsaLocationD
         }
     }
     cCountEnergy->Write();
-    SaveCanvas(cCountEnergy, "plots/png/summary/count_energy_grid");
+    SaveCanvasWithPrefix(cCountEnergy, "plots/png/summary", "count_energy_grid", prefix);
     delete cCountEnergy;
     
     TCanvas* cCountAngle = new TCanvas("cCountAngle", "Count vs Angle by Location", 1600, 1200);
@@ -647,7 +655,7 @@ void WriteEvolutionHistograms(TFile* rootFile, std::map<G4String, DamsaLocationD
         }
     }
     cCountAngle->Write();
-    SaveCanvas(cCountAngle, "plots/png/summary/count_angle_grid");
+    SaveCanvasWithPrefix(cCountAngle, "plots/png/summary", "count_angle_grid", prefix);
     delete cCountAngle;
     
     TCanvas* cEnergyAngleCount = new TCanvas("cEnergyAngleCount", "Energy-Count vs Angle by Location and Particle", 1600, 1200);
@@ -684,6 +692,6 @@ void WriteEvolutionHistograms(TFile* rootFile, std::map<G4String, DamsaLocationD
         }
     }
     cEnergyAngleCount->Write();
-    SaveCanvas(cEnergyAngleCount, "plots/png/summary/energy_angle_count_grid");
+    SaveCanvasWithPrefix(cEnergyAngleCount, "plots/png/summary", "energy_angle_count_grid", prefix);
     delete cEnergyAngleCount;
 }

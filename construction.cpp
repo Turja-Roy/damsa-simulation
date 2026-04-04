@@ -18,7 +18,7 @@ DamsaDetectorConstruction::DamsaDetectorConstruction()
     fTargetY = 5.0*cm;
     fTargetZ = 10.0*cm;
     fTargetExitZ = -40.0*cm;  // Target rear face position
-    fGapDistance = 47.0*cm;  // Default gap
+    fGapDistance = 0.0*cm;  // Default gap (no gap - calorimeter right after magnet)
     fCaloEntranceZ = 0.0*cm; // Will be calculated
 
     fChamberInnerRadius = 10.0*cm;
@@ -106,11 +106,23 @@ void DamsaDetectorConstruction::BuildTarget(G4LogicalVolume* worldLV, G4double& 
     auto* logicTungsten = new G4LogicalVolume(solidTungsten, fMatTungsten, "logicTungsten");
     new G4PVPlacement(0, G4ThreeVector(0., 0., zPos+fTargetZ/2.0), logicTungsten, "physTungsten", worldLV, false, 0, true);
 
-    zPos += fTargetZ;
-
     auto* tungstenVis = new G4VisAttributes(G4Colour(0.3, 0.3, 0.3, 1.0));
     tungstenVis->SetForceSolid(true);
     logicTungsten->SetVisAttributes(tungstenVis);
+    
+    // Mid-target scoring plane (at center of target)
+    G4double scoringHalfThickness = 0.05*mm;
+    auto* solidScoringTargetMid = new G4Box("solidScoringTargetMid", fTargetX/2., fTargetY/2., scoringHalfThickness);
+    fLogicScoringTargetMid = new G4LogicalVolume(solidScoringTargetMid, fMatVacuum, "logicScoringTargetMid");
+    
+    auto* midScoringVis = new G4VisAttributes(G4Colour(1.0, 0.5, 0.5, 1.0));
+    midScoringVis->SetForceSolid(true);
+    fLogicScoringTargetMid->SetVisAttributes(midScoringVis);
+    
+    G4double midZ = zPos + fTargetZ/2.0;
+    new G4PVPlacement(0, G4ThreeVector(0., 0., midZ), fLogicScoringTargetMid, "physScoringTargetMid", worldLV, false, 0, true);
+    
+    zPos += fTargetZ;
 }
 
 void DamsaDetectorConstruction::BuildVacuumChamber(G4LogicalVolume* worldLV, G4double& zPos)
@@ -473,6 +485,18 @@ void DamsaDetectorConstruction::ConstructSDandField()
     scoringCaloExitSD->RegisterPrimitive(scoringCaloExitNofSecondary);
     
     fLogicScoringCaloExit->SetSensitiveDetector(scoringCaloExitSD);
+
+    // Mid-target scoring plane
+    auto* scoringTargetMidSD = new G4MultiFunctionalDetector("ScoringTargetMidSD");
+    sdManager->AddNewDetector(scoringTargetMidSD);
+    
+    auto* scoringTargetMidEnergyDep = new G4PSEnergyDeposit("EnergyDeposit");
+    scoringTargetMidSD->RegisterPrimitive(scoringTargetMidEnergyDep);
+    
+    auto* scoringTargetMidNofSecondary = new G4PSNofSecondary("NofSecondary");
+    scoringTargetMidSD->RegisterPrimitive(scoringTargetMidNofSecondary);
+    
+    fLogicScoringTargetMid->SetSensitiveDetector(scoringTargetMidSD);
 
     // fMagField = new MagneticField();
     // auto* fieldMgr = new G4FieldManager();
