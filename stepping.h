@@ -8,6 +8,7 @@
 #include "G4SystemOfUnits.hh"
 #include "G4StepStatus.hh"
 #include "G4RunManager.hh"
+#include "G4VProcess.hh"
 #include "analysis.h"
 #include "FluxData.h"
 
@@ -30,52 +31,67 @@ DamsaSteppingAction::~DamsaSteppingAction()
 void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
 {
     G4Track* track = step->GetTrack();
+    G4String particleName = track->GetDefinition()->GetParticleName();
+    G4int trackID = track->GetTrackID();
+    G4int eventID = G4RunManager::GetRunManager()->GetCurrentEvent()->GetEventID();
+
+    // ─── Bremsstrahlung photon scoring INSIDE the target ────────────────────
+    // MUST be before the fGeomBoundary early-return below.
+    // Score every photon at its creation point (step 1) inside physTungsten,
+    // regardless of whether that step crosses a geometry boundary.
+    // These hard photons (up to 8 GeV) are the correct alplib Primakoff input.
+    if(particleName == "gamma" && track->GetCurrentStepNumber() == 1) {
+        G4VPhysicalVolume* birthVolume = step->GetPreStepPoint()->GetTouchableHandle()->GetVolume();
+        if(birthVolume && birthVolume->GetName() == "physTungsten") {
+            G4double brems_energy = track->GetKineticEnergy();
+            if(brems_energy > 1.0*MeV) {
+                const G4VProcess* creatorProcess = track->GetCreatorProcess();
+                G4String processName = creatorProcess ? creatorProcess->GetProcessName() : "primary";
+                if(processName == "eBrem" || processName == "annihil" || processName == "conv") {
+                    G4ThreeVector bpos = step->GetPreStepPoint()->GetPosition();
+                    G4ThreeVector bmom = track->GetMomentumDirection();
+                    G4double btime    = step->GetPreStepPoint()->GetGlobalTime();
+                    DamsaFluxCollector::Instance()->RecordBremsPhoton(
+                        brems_energy, btime,
+                        bpos.x(), bpos.y(), bpos.z(),
+                        bmom.x(), bmom.y(), bmom.z(),
+                        trackID, eventID);
+                }
+            }
+        }
+    }
+
+    // ─── Boundary crossing checks (scoring planes) ──────────────────────────
     G4StepPoint* postStepPoint = step->GetPostStepPoint();
-    
-    // Safety check for valid post-step point
     if(!postStepPoint) return;
-    
+
     G4VPhysicalVolume* volume = postStepPoint->GetTouchableHandle()->GetVolume();
     if(!volume) return;
-    
+
     G4StepStatus stepStatus = postStepPoint->GetStepStatus();
-    
+
     // Only record particles when they cross a geometry boundary
     if(stepStatus != fGeomBoundary) return;
-    
+
     // Get particle properties
-    G4String particleName = track->GetDefinition()->GetParticleName();
     G4double energy = track->GetKineticEnergy();
-    G4int trackID = track->GetTrackID();
-    G4bool isPrimary = (track->GetParentID() == 0);  // Primary particle has parentID = 0
-    
-    // Get PDG code for flux collector
+    G4bool isPrimary = (track->GetParentID() == 0);
     G4int pdgCode = track->GetDefinition()->GetPDGEncoding();
-    
-    // Check momentum direction - only count forward-moving particles (positive Z momentum)
+
     G4ThreeVector momentum = track->GetMomentumDirection();
-    G4double cosTheta = momentum.z();  // Dot product with beam axis (0,0,1)
-    
-    // Skip backward-moving particles (momentum in -Z direction)
+    G4double cosTheta = momentum.z();
     if(cosTheta < 0) return;
-    
-    G4double angle = momentum.angle(G4ThreeVector(0, 0, 1));  // Angle from beam axis
-    
-    // Get position and time for flux extraction
+
+    G4double angle = momentum.angle(G4ThreeVector(0, 0, 1));
     G4ThreeVector position = postStepPoint->GetPosition();
     G4double time = postStepPoint->GetGlobalTime();
-    G4int eventID = G4RunManager::GetRunManager()->GetCurrentEvent()->GetEventID();
-    
+
     G4String volumeName = volume->GetName();
-    
-    // Target exit scoring plane - PRIMARY flux extraction point for alplib
+
+    // Target exit scoring plane - records particles exiting the target
     if(volumeName == "physScoringVolumeTarget") {
-        // Check if this track was already recorded at this location
         if(!DamsaAnalysis::Instance()->WasTrackRecorded(trackID, "TargetExit")) {
-            // Record in original analysis system
             DamsaAnalysis::Instance()->RecordParticle(particleName, energy, "TargetExit", angle, trackID, isPrimary);
-            
-            // Record in flux collector for alplib (with full kinematic info)
             if(particleName == "gamma") {
                 DamsaFluxCollector::Instance()->RecordPhoton(
                     energy, time,
@@ -83,7 +99,6 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
                     momentum.x(), momentum.y(), momentum.z(),
                     trackID, eventID);
             }
-            // Record all particles for background studies
             DamsaFluxCollector::Instance()->RecordParticle(
                 pdgCode, energy, time,
                 position.x(), position.y(), position.z(),

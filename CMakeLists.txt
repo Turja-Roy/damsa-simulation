@@ -13,6 +13,7 @@ file(GLOB sources ${PROJECT_SOURCE_DIR}/*.cpp)
 list(REMOVE_ITEM sources ${PROJECT_SOURCE_DIR}/damsa.cpp)
 list(REMOVE_ITEM sources ${PROJECT_SOURCE_DIR}/damsa_gap_scan.cpp)
 list(REMOVE_ITEM sources ${PROJECT_SOURCE_DIR}/damsa_opt.cpp)
+list(REMOVE_ITEM sources ${PROJECT_SOURCE_DIR}/damsa_alp_inject.cpp)
 file(GLOB headers ${PROJECT_SOURCE_DIR}/*.h)
 
 file(GLOB MACRO_FILES
@@ -33,4 +34,8 @@ add_executable(damsa_opt damsa_opt.cpp ${sources} ${headers})
 set_target_properties(damsa_opt PROPERTIES COMPILE_FLAGS "${ROOT_CXX_FLAGS}")
 target_link_libraries(damsa_opt ${Geant4_LIBRARIES} ${ROOT_LIBRARIES})
 
-add_custom_target(Damsa DEPENDS damsa damsa_gap_scan damsa_opt)
+add_executable(damsa_alp_inject damsa_alp_inject.cpp ${sources} ${headers})
+set_target_properties(damsa_alp_inject PROPERTIES COMPILE_FLAGS "${ROOT_CXX_FLAGS}")
+target_link_libraries(damsa_alp_inject ${Geant4_LIBRARIES} ${ROOT_LIBRARIES})
+
+add_custom_target(Damsa DEPENDS damsa damsa_gap_scan damsa_opt damsa_alp_inject)

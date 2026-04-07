@@ -436,7 +436,7 @@ class ObjectiveFunctions:
         self.beam_current = beam_current_uA * 1e-6  # Convert to Amperes
         self.axion_mass = axion_mass_MeV
         self.axion_coupling = axion_coupling  # GeV^-1
-        self.axion_coupling_mev = axion_coupling * 1000.0  # Convert GeV^-1 to MeV^-1 for alplib
+        self.axion_coupling_mev = axion_coupling / 1000.0  # Convert GeV^-1 to MeV^-1: 1 GeV^-1 = 1e-3 MeV^-1
         self.exposure_days = exposure_days
         
         # Default detector parameters

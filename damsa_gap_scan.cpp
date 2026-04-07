@@ -4,9 +4,9 @@
 #include "G4UImanager.hh"
 #include "G4VisExecutive.hh"
 #include "G4VisManager.hh"
-#include "QBBC.hh"
 
 #include "construction.h"
+#include "physics.h"
 #include "action.h"
 #include "analysis.h"
 #include "G4SystemOfUnits.hh"
@@ -127,7 +127,7 @@ int main(int argc, char** argv)
     
     G4RunManager* runManager = new G4RunManager;
     
-    G4VModularPhysicsList* physicsList = new QBBC;
+    G4VModularPhysicsList* physicsList = new DamsaPhysicsList;
     physicsList->SetVerboseLevel(0);
     runManager->SetUserInitialization(physicsList);
     
@@ -211,8 +211,8 @@ int main(int argc, char** argv)
     while (std::getline(inFile, line)) {
         if (line.empty() || line[0] == '#') continue;
         std::istringstream iss(line);
-        int config; double gap, csi; int exP, exN, detP, detN, fwdP; double eff, sb;
-        if (iss >> config >> gap >> csi >> exP >> exN >> detP >> detN >> fwdP >> eff >> sb) {
+        int config; double gap, tgtLen, tgtWid, csi; int exP, exN, detP, detN, fwdP; double eff, sb;
+        if (iss >> config >> gap >> tgtLen >> tgtWid >> csi >> exP >> exN >> detP >> detN >> fwdP >> eff >> sb) {
             gaps.push_back(gap);
             csiZ.push_back(csi);
             exitPhotons.push_back(exP);

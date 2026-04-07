@@ -1,0 +1,652 @@
+#!/usr/bin/env python3
+"""
+ALP Signal Pipeline for DAMSA — Production-quality, no proxy masses.
+
+Computes Primakoff ALP production and decay using either:
+  (A) Geant4 bremsstrahlung flux from output/alplib_brems_flux.csv [preferred]
+  (B) Analytic Bethe-Heitler spectrum [fallback / fast mode]
+
+Outputs:
+  - Opening angle distributions per mass point
+  - Sensitivity curve (excluded coupling vs mass)
+  - Decay photon 4-vector CSVs for Geant4 re-injection (alp_generator.h)
+
+Usage:
+    # Use Geant4 brems flux (run Geant4 first to produce alplib_brems_flux.csv):
+    python alp_signal_pipeline.py --flux output/alplib_brems_flux.csv --nprimaries 10000
+
+    # Analytic fallback (no Geant4 run required):
+    python alp_signal_pipeline.py --analytic
+
+    # Quick test for one mass:
+    python alp_signal_pipeline.py --analytic --mass 100 --coupling 1e-3
+"""
+
+import sys
+import argparse
+import numpy as np
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+try:
+    from alplib.fluxes import FluxPrimakoffIsotropic
+    from alplib.materials import Material
+    from alplib.generators import PhotonEventGenerator
+    from alplib.constants import CHARGE_COULOMBS, S_PER_DAY, METER_BY_MEV
+except ImportError:
+    sys.exit("alplib not found. Clone https://github.com/athompson-git/alplib into the project root.")
+
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    PLOT = True
+except ImportError:
+    PLOT = False
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Geometry — update these to match your run's optimal configuration
+# ──────────────────────────────────────────────────────────────────────────────
+BEAM_ENERGY_MEV   = 8000.0    # 8 GeV LCLS-II electron beam
+BEAM_CURRENT_UA   = 62.5      # μA  (confirm with SLAC ops)
+ELECTRONS_PER_S   = BEAM_CURRENT_UA * 1e-6 / CHARGE_COULOMBS
+
+TARGET_LENGTH_M   = 0.10      # 10 cm tungsten dump
+DET_DIST_M        = 0.47      # gap from target exit to calorimeter face [m]
+DET_LENGTH_M      = 0.44      # CsI depth [m]
+DET_AREA_M2       = 0.0144    # 12 cm × 12 cm calorimeter face [m²]
+DET_HALF_X_M      = 0.06      # half-side of calorimeter face along x [m]
+DET_HALF_Y_M      = 0.06      # half-side of calorimeter face along y [m]
+EXPOSURE_DAYS     = 30.0
+
+# Default mass and coupling grids
+MASS_GRID_MEV   = np.array([1, 5, 10, 20, 50, 100, 200, 500])
+COUPLING_GRID   = np.logspace(-8, -2, 60)   # GeV^-1
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Bremsstrahlung spectrum helpers
+# ──────────────────────────────────────────────────────────────────────────────
+
+def bethe_heitler_spectrum(k_MeV, E0_MeV=BEAM_ENERGY_MEV, n_bins=500):
+    """
+    Analytic thin-target bremsstrahlung photon spectrum (Tsai/Bethe-Heitler,
+    complete-screening limit).
+
+    Returns [[E_MeV, photons_per_second], ...] normalised to one primary
+    electron × ELECTRONS_PER_S.
+
+    dN/dk ∝ (1/k) × [4/3 − (4/3)(k/E₀) + (k/E₀)²]  per radiation length
+
+    The absolute normalisation: one e⁻ emits ≈1 photon per X₀ with the 1/k
+    distribution.  We keep the spectral shape and scale by electrons/s.
+    """
+    k_min = 1.0          # MeV — Primakoff negligible below this
+    k_max = 0.999 * E0_MeV
+    k_edges = np.linspace(k_min, k_max, n_bins + 1)
+    k_centers = 0.5 * (k_edges[:-1] + k_edges[1:])
+    dk = k_edges[1:] - k_edges[:-1]
+
+    x = k_centers / E0_MeV
+    # Tsai formula (Eq. 3.83 in PDG review on passage of particles through matter)
+    dNdk = (4.0/3.0 - 4.0*x/3.0 + x**2) / k_centers  # per e⁻ per X₀
+
+    # Integrate over each bin width to get photons/bin/e⁻/X₀
+    counts_per_electron = dNdk * dk
+
+    # Scale to photons/second
+    rates = counts_per_electron * ELECTRONS_PER_S
+
+    return np.column_stack([k_centers, rates])
+
+
+def load_geant4_brems_flux(csv_path, n_primaries):
+    """
+    Load Geant4 bremsstrahlung flux file (output/alplib_brems_flux.csv).
+
+    The file has comment lines starting with # and data rows:
+        energy_MeV,rate_per_second
+    where rate = count/n_primaries * electrons_per_second (already scaled by
+    run.h:WriteAlplibBremsFlux).
+    """
+    data = []
+    with open(csv_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            parts = line.split(',')
+            if len(parts) >= 2:
+                try:
+                    e_mev = float(parts[0])
+                    rate  = float(parts[1])
+                    if e_mev > 0 and rate > 0:
+                        data.append([e_mev, rate])
+                except ValueError:
+                    continue  # skip header if present
+
+    if not data:
+        raise RuntimeError(f"No usable data in {csv_path}")
+
+    arr = np.array(data)
+
+    # Rescale: the file was produced with a specific n_primaries; if the caller
+    # passes a different n_primaries, re-scale accordingly.
+    # (The file is already in photons/second; no rescaling needed unless the
+    # WriteAlplibBremsFlux used a different n_primaries than the file header says.)
+    # We rely on the file being correctly normalised.
+    print(f"[flux] Loaded {len(arr)} bins from {csv_path}")
+    print(f"[flux] Energy range: {arr[:,0].min():.1f} – {arr[:,0].max():.1f} MeV")
+    print(f"[flux] Total rate: {arr[:,1].sum():.3e} photons/s")
+    return arr
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Coupling auto-selection and exact mean opening angle
+# ──────────────────────────────────────────────────────────────────────────────
+
+def pick_safe_coupling(ma_MeV, photon_flux, target_decay_length_m=5.0):
+    """
+    Return g (GeV⁻¹) so that the mean ALP boosted decay length ≈ target_decay_length_m,
+    ensuring surv_prob ≈ 1 (ALPs reach the detector).  DAMSA detector distance is
+    ~0.47 m, so 5 m gives surv_prob ≈ 1 − 0.47/5 ≈ 0.9.
+
+        Γ = g² mₐ³ / (64π),  L_decay = (Eₐ/mₐ)(ℏc/Γ)
+        ⇒ g² = 64π · ℏc · Eₐ / (L_decay · mₐ³)       [MeV⁻²]
+    """
+    E = photon_flux[:, 0]
+    w = photon_flux[:, 1]
+    mask = E > ma_MeV
+    if mask.sum() == 0:
+        return 1e-4
+    Ea_typ = np.average(E[mask], weights=w[mask])       # MeV
+
+    g_sq_MeV = (64.0 * np.pi * METER_BY_MEV * Ea_typ
+                / (target_decay_length_m * ma_MeV**3))
+    g_MeV = np.sqrt(g_sq_MeV)
+    return g_MeV * 1000.0                               # MeV⁻¹ → GeV⁻¹
+
+
+def expected_mean_theta_per_alp(Ea, ma, n_integration=200):
+    """
+    Exact ⟨θ_open⟩ for one ALP of (Ea, ma), averaged uniformly over rest-frame
+    cos θ* ∈ [−1, 1]:
+        cos θ_open(u) = 1 − 2 mₐ² / (Eₐ² − pₐ² u²)
+    In the UR limit this approaches π mₐ/Eₐ, NOT 2 mₐ/Eₐ (which is the minimum).
+    """
+    if Ea <= ma:
+        return 0.0
+    pa2 = Ea*Ea - ma*ma
+    u = np.linspace(-1.0, 1.0, n_integration)
+    denom = Ea*Ea - pa2 * u*u
+    denom = np.clip(denom, ma*ma, None)
+    cos_theta = 1.0 - 2.0 * ma*ma / denom
+    cos_theta = np.clip(cos_theta, -1.0, 1.0)
+    theta = np.arccos(cos_theta)
+    return float(np.trapezoid(theta, u) / 2.0)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Core alplib calculation
+# ──────────────────────────────────────────────────────────────────────────────
+
+def run_alplib(photon_flux, ma_MeV, coupling_GeV, n_samples=5000):
+    """
+    Run FluxPrimakoffIsotropic for one (mass, coupling) point.
+
+    Parameters
+    ----------
+    photon_flux : np.ndarray, shape (N, 2)
+        [[E_MeV, photons/s], ...]  — the photon flux entering the tungsten target.
+    ma_MeV : float
+        ALP mass in MeV.
+    coupling_GeV : float
+        g_aγγ in GeV^-1.  Converted internally to MeV^-1 for alplib.
+    n_samples : int
+        MC samples per flux point (for 4-vector generation).
+
+    Returns
+    -------
+    flux_obj, generator : (FluxPrimakoffIsotropic, PhotonEventGenerator)
+    """
+    # Unit conversion: 1 GeV^-1 = 1e-3 MeV^-1
+    coupling_MeV = coupling_GeV / 1000.0
+
+    flux_obj = FluxPrimakoffIsotropic(
+        photon_flux   = photon_flux,
+        target        = Material("W"),
+        det_dist      = DET_DIST_M,
+        det_length    = DET_LENGTH_M,
+        det_area      = DET_AREA_M2,
+        axion_mass    = ma_MeV,
+        axion_coupling= coupling_MeV,    # MeV^-1
+        n_samples     = n_samples,
+    )
+    flux_obj.simulate()
+    flux_obj.propagate()
+
+    gen = PhotonEventGenerator(flux_obj, Material("CsI"))
+    return flux_obj, gen
+
+
+def signal_events(photon_flux, ma_MeV, coupling_GeV, n_samples=500,
+                  threshold_MeV=5.0):
+    """Return total signal events for given exposure."""
+    _, gen = run_alplib(photon_flux, ma_MeV, coupling_GeV, n_samples)
+    return gen.decays(days_exposure=EXPOSURE_DAYS, threshold=threshold_MeV)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Transverse detector acceptance (analytic, ignores material)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def transverse_acceptance_mask(p41_list, p42_list,
+                               det_dist_m=DET_DIST_M,
+                               half_x=DET_HALF_X_M,
+                               half_y=DET_HALF_Y_M,
+                               vertex_z_m=0.0):
+    """
+    Straight-line propagate each γγ pair from (0, 0, vertex_z_m) to z = det_dist_m
+    and return a boolean array marking pairs where BOTH photons land inside the
+    calorimeter face (|x| ≤ half_x, |y| ≤ half_y).
+
+    alplib's `decay_axion_weight` includes only the longitudinal survival ×
+    decay-in-detector probability and (for isotropic sources) a 4π solid-angle
+    factor.  It does NOT check whether each γ trajectory actually hits the
+    calorimeter face — many decays of soft ALPs are wide-angle and miss the
+    detector entirely.  This function applies that missing geometric cut.
+
+    Approximations:
+      • Decay vertex placed at the target centre (z = vertex_z_m, default 0).
+      • No magnetic deflection (photons are neutral, so this is exact for γ).
+      • Backward-going photons (pz ≤ 0) are rejected.
+    """
+    dz = det_dist_m - vertex_z_m
+    n = len(p41_list)
+    mask = np.zeros(n, dtype=bool)
+    for i in range(n):
+        p1 = p41_list[i]
+        p2 = p42_list[i]
+        if p1.p3 <= 0.0 or p2.p3 <= 0.0:
+            continue
+        x1 = (p1.p1 / p1.p3) * dz
+        y1 = (p1.p2 / p1.p3) * dz
+        x2 = (p2.p1 / p2.p3) * dz
+        y2 = (p2.p2 / p2.p3) * dz
+        if (abs(x1) <= half_x and abs(y1) <= half_y
+                and abs(x2) <= half_x and abs(y2) <= half_y):
+            mask[i] = True
+    return mask
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Opening angle calculation
+# ──────────────────────────────────────────────────────────────────────────────
+
+def compute_opening_angles(photon_flux, ma_MeV, coupling_GeV=None, n_samples=10,
+                           n_decay_samples=200):
+    """
+    Compute the weighted opening angle distribution for a → γγ.
+
+    If coupling_GeV is None, pick a coupling that gives surv_prob ≈ 1 so the
+    opening angle distribution isn't biased by detector acceptance (heavy ALPs
+    otherwise all decay before reaching the calorimeter).
+
+    Returns a dict with the full distribution and the in-acceptance subset:
+        thetas, wgts, mean_mrad,                  — all decays
+        thetas_in, wgts_in, mean_in_mrad,         — both photons hit calo face
+        accept_frac,                              — Σ wgts_in / Σ wgts
+        theta_kin_mrad, coupling_used.
+    """
+    if coupling_GeV is None:
+        coupling_GeV = pick_safe_coupling(ma_MeV, photon_flux,
+                                          target_decay_length_m=5.0)
+
+    empty = {
+        "thetas": np.array([]), "wgts": np.array([]), "mean_mrad": 0.0,
+        "thetas_in": np.array([]), "wgts_in": np.array([]), "mean_in_mrad": 0.0,
+        "accept_frac": 0.0,
+        "theta_kin_mrad": 0.0, "coupling_used": coupling_GeV,
+    }
+
+    flux_obj, gen = run_alplib(photon_flux, ma_MeV, coupling_GeV, n_samples)
+
+    if len(flux_obj.axion_energy) == 0:
+        return empty
+
+    # Exact kinematic expectation from per-ALP integration (same ensemble)
+    Ea_arr = np.asarray(flux_obj.axion_energy)
+    alp_wgt = np.asarray(flux_obj.decay_axion_weight)
+    if alp_wgt.sum() > 0:
+        theta_kin_per = np.array([expected_mean_theta_per_alp(e, ma_MeV)
+                                  for e in Ea_arr])
+        theta_kin_mrad = 1000.0 * np.average(theta_kin_per, weights=alp_wgt)
+    else:
+        theta_kin_mrad = 0.0
+
+    p41_list, p42_list, wgts = gen.simulate_decay_4vectors(
+        days_exposure=EXPOSURE_DAYS,
+        n_samples=n_decay_samples,
+    )
+
+    thetas = []
+    for p1, p2 in zip(p41_list, p42_list):
+        # alplib LorentzVector API: .p0=E, .p1=px, .p2=py, .p3=pz
+        p1_vec = np.array([p1.p1, p1.p2, p1.p3])
+        p2_vec = np.array([p2.p1, p2.p2, p2.p3])
+        mag1 = np.linalg.norm(p1_vec)
+        mag2 = np.linalg.norm(p2_vec)
+        if mag1 < 1e-12 or mag2 < 1e-12:
+            thetas.append(0.0)
+            continue
+        cos_theta = np.dot(p1_vec, p2_vec) / (mag1 * mag2)
+        thetas.append(np.arccos(np.clip(cos_theta, -1.0, 1.0)))
+
+    thetas = np.array(thetas)
+    wgts   = np.array(wgts)
+
+    if len(wgts) == 0 or wgts.sum() == 0:
+        out = dict(empty)
+        out["thetas"] = thetas
+        out["wgts"] = wgts
+        out["theta_kin_mrad"] = theta_kin_mrad
+        return out
+
+    mean_theta_mrad = 1000.0 * np.average(thetas, weights=wgts)
+
+    # Apply analytic transverse acceptance cut: both γ must hit calo face
+    accept = transverse_acceptance_mask(p41_list, p42_list)
+    thetas_in = thetas[accept]
+    wgts_in   = wgts[accept]
+    if wgts_in.sum() > 0:
+        mean_in_mrad = 1000.0 * np.average(thetas_in, weights=wgts_in)
+        accept_frac = float(wgts_in.sum() / wgts.sum())
+    else:
+        mean_in_mrad = 0.0
+        accept_frac = 0.0
+
+    return {
+        "thetas": thetas, "wgts": wgts, "mean_mrad": mean_theta_mrad,
+        "thetas_in": thetas_in, "wgts_in": wgts_in, "mean_in_mrad": mean_in_mrad,
+        "accept_frac": accept_frac,
+        "theta_kin_mrad": theta_kin_mrad, "coupling_used": coupling_GeV,
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Export decay photon 4-vectors for Geant4 re-injection
+# ──────────────────────────────────────────────────────────────────────────────
+
+def export_decay_4vectors(photon_flux, ma_MeV, coupling_GeV=None,
+                          out_dir="output", n_samples=10, n_decay_samples=200):
+    """
+    Export γγ decay 4-vectors to CSV for DamsaALPDecayGenerator.
+
+    If coupling_GeV is None, auto-select a safe coupling per mass so heavy ALPs
+    actually reach the detector (otherwise the exported weights are 0 — useless
+    for Geant4 re-injection).
+
+    CSV columns: E1_MeV,px1,py1,pz1,E2_MeV,px2,py2,pz2,weight_evts_per_day
+    """
+    if coupling_GeV is None:
+        coupling_GeV = pick_safe_coupling(ma_MeV, photon_flux,
+                                          target_decay_length_m=5.0)
+
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    out_path = Path(out_dir) / f"alp_decay_photons_ma{ma_MeV:.0f}MeV.csv"
+
+    flux_obj, gen = run_alplib(photon_flux, ma_MeV, coupling_GeV, n_samples)
+
+    if len(flux_obj.axion_energy) == 0:
+        print(f"  [ma={ma_MeV} MeV] No ALP events generated (mass > max photon energy?)")
+        return
+
+    p41_list, p42_list, wgts = gen.simulate_decay_4vectors(
+        days_exposure=EXPOSURE_DAYS,
+        n_samples=n_decay_samples,
+    )
+
+    rows = []
+    for p1, p2, w in zip(p41_list, p42_list, wgts):
+        rows.append([
+            p1.energy(), p1.p1, p1.p2, p1.p3,
+            p2.energy(), p2.p1, p2.p2, p2.p3,
+            w,
+        ])
+
+    arr = np.array(rows)
+    np.savetxt(str(out_path), arr, delimiter=",",
+               header="E1_MeV,px1,py1,pz1,E2_MeV,px2,py2,pz2,weight_evts_per_day",
+               comments="")
+    print(f"  [ma={ma_MeV:.0f} MeV, g={coupling_GeV:.2e} GeV⁻¹] "
+          f"{len(rows)} decay pairs → {out_path}"
+          f"  (total weight: {np.array(wgts).sum():.3e} events over {EXPOSURE_DAYS} days)")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Sensitivity curve
+# ──────────────────────────────────────────────────────────────────────────────
+
+def compute_sensitivity(photon_flux, mass_grid=MASS_GRID_MEV,
+                        coupling_grid=COUPLING_GRID,
+                        cl_threshold=2.3,
+                        threshold_MeV=5.0):
+    """
+    DAMSA sensitivity is a CLOSED contour in (mₐ, g) space:
+      • low-g edge:  g too small ⇒ decay prob in detector ∝ g² → 0
+      • high-g edge: g too large ⇒ ALPs decay before reaching detector
+                     (cτβγ ≪ det_dist ⇒ surv_prob → 0)
+      • a band of excluded g between the two edges where N_signal > cl_threshold.
+
+    For each mass, scans the coupling grid and records the lower and upper
+    edges of the excluded band.
+
+    Returns (mass_grid, g_lower, g_upper) — NaN if not excluded.
+    """
+    g_lower = np.full(len(mass_grid), np.nan)
+    g_upper = np.full(len(mass_grid), np.nan)
+
+    for i, ma in enumerate(mass_grid):
+        print(f"  Sensitivity scan: ma={ma} MeV ...")
+        n_sig = np.zeros(len(coupling_grid))
+        for j, gagg in enumerate(coupling_grid):
+            n_sig[j] = signal_events(photon_flux, ma, gagg,
+                                     n_samples=200, threshold_MeV=threshold_MeV)
+
+        excluded = n_sig > cl_threshold
+        if excluded.any():
+            idx = np.where(excluded)[0]
+            g_lower[i] = coupling_grid[idx[0]]
+            g_upper[i] = coupling_grid[idx[-1]]
+            n_max = n_sig[idx].max()
+            print(f"    excluded band: "
+                  f"[{g_lower[i]:.2e}, {g_upper[i]:.2e}] GeV⁻¹  (max N_sig={n_max:.1f})")
+        else:
+            print(f"    not excluded (max N_sig={n_sig.max():.2e})")
+
+    return mass_grid, g_lower, g_upper
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Plotting helpers
+# ──────────────────────────────────────────────────────────────────────────────
+
+def plot_opening_angles(results, out_dir="plots"):
+    """
+    Plot opening angle distribution for each mass — two panels:
+      • Left: all decays (no transverse acceptance cut). Spans 0–180° because
+        alplib doesn't enforce that γγ photons land on the detector face.
+      • Right: photons that both hit the calorimeter face (analytic
+        straight-line cut from `transverse_acceptance_mask`). This is the
+        spectrum that the actual detector sees and should be narrow / forward.
+    results: list of dicts from compute_opening_angles().
+    """
+    if not PLOT:
+        return
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+
+    fig, (ax_all, ax_in) = plt.subplots(1, 2, figsize=(13, 5))
+    cmap = plt.get_cmap("viridis")
+
+    for k, r in enumerate(results):
+        if len(r["thetas"]) == 0:
+            continue
+        color = cmap(k / max(1, len(results) - 1))
+        label = f"mₐ={r['ma']} MeV"
+
+        # Left panel — full kinematic distribution
+        bins_full = np.linspace(0.0, 180.0, 60)
+        ax_all.hist(np.degrees(r["thetas"]), weights=r["wgts"],
+                    bins=bins_full, histtype='step', color=color, label=label)
+
+        # Right panel — only γγ pairs that land in the calo face
+        if len(r["thetas_in"]) > 0 and r["wgts_in"].sum() > 0:
+            t_deg_in = np.degrees(r["thetas_in"])
+            hi = max(np.percentile(t_deg_in, 99), 1.0) * 1.1
+            bins_in = np.linspace(0.0, hi, 50)
+            ax_in.hist(t_deg_in, weights=r["wgts_in"],
+                       bins=bins_in, histtype='step', color=color, label=label)
+
+    ax_all.set_xlabel("Opening angle (degrees)")
+    ax_all.set_ylabel("Weighted events / bin")
+    ax_all.set_title("All a→γγ decays (alplib, no transverse cut)")
+    ax_all.set_yscale("log")
+    ax_all.legend(fontsize=7)
+    ax_all.grid(True, which='both', alpha=0.3)
+
+    ax_in.set_xlabel("Opening angle (degrees)")
+    ax_in.set_ylabel("Weighted events / bin")
+    ax_in.set_title("Both γ on calorimeter face (12×12 cm² @ 47 cm)")
+    ax_in.set_yscale("log")
+    ax_in.legend(fontsize=7)
+    ax_in.grid(True, which='both', alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(str(Path(out_dir) / "opening_angles.pdf"))
+    fig.savefig(str(Path(out_dir) / "opening_angles.png"), dpi=150)
+    plt.close(fig)
+    print(f"Opening angle plot → {out_dir}/opening_angles.pdf")
+
+
+def plot_sensitivity(mass_grid, g_lower, g_upper, out_dir="plots"):
+    if not PLOT:
+        return
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+
+    mask = ~np.isnan(g_lower)
+    fig, ax = plt.subplots(figsize=(8, 5))
+    if mask.any():
+        ax.fill_between(mass_grid[mask], g_lower[mask], g_upper[mask],
+                        color='steelblue', alpha=0.3,
+                        label=f"DAMSA Phase 1 ({EXPOSURE_DAYS:.0f} days)")
+        ax.plot(mass_grid[mask], g_lower[mask], 'o-', color='steelblue')
+        ax.plot(mass_grid[mask], g_upper[mask], 'o-', color='steelblue')
+    ax.set_xlabel("mₐ (MeV)")
+    ax.set_ylabel("g_aγγ (GeV⁻¹)")
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_title("90% CL sensitivity: g_aγγ vs mₐ")
+    ax.legend()
+    ax.grid(True, which='both', alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(str(Path(out_dir) / "sensitivity_curve.pdf"))
+    fig.savefig(str(Path(out_dir) / "sensitivity_curve.png"), dpi=150)
+    plt.close(fig)
+    print(f"Sensitivity plot → {out_dir}/sensitivity_curve.pdf")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CLI
+# ──────────────────────────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(description="DAMSA ALP signal pipeline")
+    parser.add_argument("--flux", default=None,
+                        help="Path to Geant4 alplib_brems_flux.csv")
+    parser.add_argument("--nprimaries", type=int, default=10000,
+                        help="Number of Geant4 primary events (for info only)")
+    parser.add_argument("--analytic", action="store_true",
+                        help="Use analytic Bethe-Heitler spectrum instead of Geant4 flux")
+    parser.add_argument("--mass", type=float, default=None,
+                        help="Single ALP mass in MeV (default: scan all)")
+    parser.add_argument("--coupling", type=float, default=1e-3,
+                        help="g_aγγ in GeV^-1 (default: 1e-3)")
+    parser.add_argument("--auto-coupling", action="store_true",
+                        help="Auto-pick coupling per mass so surv_prob ≈ 1 "
+                             "(recommended for opening-angle and 4-vec export)")
+    parser.add_argument("--no-4vec", action="store_true",
+                        help="Skip 4-vector CSV export")
+    parser.add_argument("--no-sensitivity", action="store_true",
+                        help="Skip sensitivity curve calculation")
+    parser.add_argument("--outdir", default="output",
+                        help="Output directory for CSVs and plots")
+    args = parser.parse_args()
+
+    # ── Load / build photon flux ──────────────────────────────────────────────
+    if args.flux and not args.analytic:
+        photon_flux = load_geant4_brems_flux(args.flux, args.nprimaries)
+    else:
+        print("[flux] Using analytic Bethe-Heitler bremsstrahlung spectrum")
+        photon_flux = bethe_heitler_spectrum(1.0, E0_MeV=BEAM_ENERGY_MEV)
+        print(f"[flux] {len(photon_flux)} bins, "
+              f"E: {photon_flux[:,0].min():.1f}–{photon_flux[:,0].max():.1f} MeV, "
+              f"total rate: {photon_flux[:,1].sum():.3e} photons/s")
+
+    mass_grid = np.array([args.mass]) if args.mass else MASS_GRID_MEV
+
+    # ── Opening angle scan ────────────────────────────────────────────────────
+    auto_g = (args.coupling is None) or args.auto_coupling
+    label = "auto-selected" if auto_g else f"g_aγγ = {args.coupling:.1e} GeV⁻¹"
+    print(f"\n=== Opening angle scan ({label}) ===")
+    print(f"  θ_MC      = mean over all alplib decays (no transverse cut)")
+    print(f"  θ_in      = mean over γγ pairs whose photons both hit the calo face")
+    print(f"  accept    = Σ wgts_in / Σ wgts (transverse acceptance fraction)\n")
+    print(f"{'mₐ (MeV)':>10} {'g (GeV⁻¹)':>12} {'θ_MC (mrad)':>13}"
+          f" {'θ_kin (mrad)':>14} {'MC/kin':>8}"
+          f" {'θ_in (mrad)':>13} {'accept':>10}")
+    print("-" * 95)
+    angle_results = []
+    for ma in mass_grid:
+        g_in = None if auto_g else args.coupling
+        r = compute_opening_angles(photon_flux, ma, g_in,
+                                   n_samples=10, n_decay_samples=300)
+        r["ma"] = ma
+        angle_results.append(r)
+        ratio = (r["mean_mrad"] / r["theta_kin_mrad"]) if r["theta_kin_mrad"] > 0 else 0.0
+        print(f"{ma:10.1f} {r['coupling_used']:12.2e} {r['mean_mrad']:13.2f}"
+              f" {r['theta_kin_mrad']:14.2f} {ratio:8.3f}"
+              f" {r['mean_in_mrad']:13.2f} {r['accept_frac']:10.3e}")
+
+    if PLOT:
+        plot_opening_angles(angle_results, out_dir=str(Path(args.outdir).parent / "plots"))
+
+    # ── Decay 4-vector export ─────────────────────────────────────────────────
+    if not args.no_4vec:
+        print(f"\n=== Exporting decay photon 4-vectors → {args.outdir}/ ===")
+        for ma in mass_grid:
+            g_used = None if auto_g else args.coupling
+            export_decay_4vectors(photon_flux, ma, g_used,
+                                  out_dir=args.outdir,
+                                  n_samples=20, n_decay_samples=500)
+
+    # ── Sensitivity curve ─────────────────────────────────────────────────────
+    if not args.no_sensitivity:
+        print(f"\n=== Sensitivity curve scan ===")
+        masses, g_lo, g_hi = compute_sensitivity(photon_flux, mass_grid=mass_grid)
+        print("\nExclusion summary (90% CL, closed band):")
+        for ma, lo, hi in zip(masses, g_lo, g_hi):
+            if np.isnan(lo):
+                print(f"  ma={ma:6.1f} MeV → not excluded in coupling range")
+            else:
+                print(f"  ma={ma:6.1f} MeV → excluded band: "
+                      f"[{lo:.2e}, {hi:.2e}] GeV⁻¹")
+        if PLOT:
+            plot_sensitivity(masses, g_lo, g_hi,
+                             out_dir=str(Path(args.outdir).parent / "plots"))
+
+    print("\nDone.")
+
+
+if __name__ == "__main__":
+    main()

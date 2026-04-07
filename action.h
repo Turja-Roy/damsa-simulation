@@ -4,6 +4,8 @@
 #include "G4VUserActionInitialization.hh"
 
 #include "generator.h"
+#include "alp_generator.h"
+#include "damsa_config.h"
 #include "run.h"
 #include "event.h"
 #include "stepping.h"
@@ -20,8 +22,16 @@ DamsaActionInitialization::DamsaActionInitialization () {}
 DamsaActionInitialization::~DamsaActionInitialization () {}
 
 void DamsaActionInitialization::Build () const {
-    DamsaPrimaryGenerator* generator = new DamsaPrimaryGenerator();
-    SetUserAction(generator);
+    if (DamsaConfig::gRunMode == DamsaConfig::RunMode::ALPInject) {
+        if (DamsaConfig::gALPDecayCSV.empty()) {
+            G4Exception("DamsaActionInitialization::Build", "ALPInjectNoCSV",
+                        FatalException,
+                        "ALPInject mode requested but DamsaConfig::gALPDecayCSV is empty.");
+        }
+        SetUserAction(new DamsaALPDecayGenerator(DamsaConfig::gALPDecayCSV));
+    } else {
+        SetUserAction(new DamsaPrimaryGenerator());
+    }
 
     DamsaRunAction* runAction = new DamsaRunAction();
     SetUserAction(runAction);
