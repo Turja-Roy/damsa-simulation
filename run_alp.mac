@@ -1,0 +1,13 @@
+# run_alp.mac — Macro for ALP decay photon injection runs
+#
+# Only performs /run/initialize. The /run/beamOn count is issued from
+# damsa_alp_inject.cpp after initialization, computed as
+#     beamOn = generator->GetNEvents() * gALPRefireFactor
+# so every input row is fired exactly `refire_factor` times regardless of
+# how many rows the CSV contains.
+#
+# Usage:
+#   ./build/damsa_alp_inject output/alp_decay_photons_ma100MeV.csv run_alp.mac
+#   ./build/damsa_alp_inject output/alp_decay_photons_ma100MeV.csv run_alp.mac 5
+
+/run/initialize

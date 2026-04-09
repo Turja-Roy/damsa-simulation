@@ -19,7 +19,6 @@ DamsaAnalysis* DamsaAnalysis::Instance()
 DamsaAnalysis::DamsaAnalysis()
 {
     fLocations["TargetExit"] = DamsaLocationData();
-    fLocations["TargetMid"] = DamsaLocationData();
     fLocations["MagnetEntrance"] = DamsaLocationData();
     fLocations["CaloEntrance"] = DamsaLocationData();
     fLocations["CaloExit"] = DamsaLocationData();
@@ -56,7 +55,7 @@ void DamsaAnalysis::RecordParticle(const G4String& particleName, G4double energy
 
 void DamsaAnalysis::PrintSummary()
 {
-    std::vector<G4String> order = {"TargetExit", "TargetMid", "MagnetEntrance", "CaloEntrance", "CaloExit"};
+    std::vector<G4String> order = {"TargetExit", "MagnetEntrance", "CaloEntrance", "CaloExit"};
     for (const G4String& locName : order) {
         fLocations[locName].PrintSummary(locName);
     }
@@ -78,7 +77,7 @@ void DamsaAnalysis::SaveToFile(const G4String& filename)
     outFile << "=== DAMSA Background Analysis Results ===" << std::endl;
     outFile << "=============================================" << std::endl << std::endl;
     
-    std::vector<G4String> order = {"TargetExit", "TargetMid", "MagnetEntrance", "CaloEntrance", "CaloExit"};
+    std::vector<G4String> order = {"TargetExit", "MagnetEntrance", "CaloEntrance", "CaloExit"};
     for (const G4String& locName : order) {
         fLocations[locName].WriteToFile(outFile, locName);
     }
@@ -400,14 +399,12 @@ void WriteEvolutionHistograms(TFile* rootFile, std::map<G4String, DamsaLocationD
     
     std::vector<G4String> orderedLocations;
     orderedLocations.push_back("TargetExit");
-    orderedLocations.push_back("TargetMid");
     orderedLocations.push_back("MagnetEntrance");
     orderedLocations.push_back("CaloEntrance");
     orderedLocations.push_back("CaloExit");
     
     std::map<G4String, Color_t> locationColors;
     locationColors["TargetExit"] = kRed;
-    locationColors["TargetMid"] = kOrange;
     locationColors["MagnetEntrance"] = kBlue;
     locationColors["CaloEntrance"] = kGreen+2;
     locationColors["CaloExit"] = kMagenta;

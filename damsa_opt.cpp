@@ -12,8 +12,6 @@
  *   - photon_flux_target_exit.csv  : Photon flux at target exit
  *   - background_target_exit.csv   : Background particles at target exit
  *   - simulation_info.json         : Metadata about the run
- * 
- * Author: DAMSA Collaboration
  */
 
 #include <iostream>
@@ -160,7 +158,7 @@ int main(int argc, char** argv)
     DamsaDetectorConstruction* detector = new DamsaDetectorConstruction();
     detector->SetTargetLength(config.targetZ * cm);
     detector->SetTargetTransverse(config.targetXY * cm);
-    detector->SetGapDistance(config.gap * cm);
+    detector->SetVDCLength(config.gap * cm);
     
     runManager->SetUserInitialization(detector);
     

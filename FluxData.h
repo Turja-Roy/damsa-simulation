@@ -50,11 +50,18 @@ public:
                         G4double px, G4double py, G4double pz,
                         G4int trackID, G4int eventID, G4double weight = 1.0);
     
+    // Record any particle at the calorimeter entrance face
+    void RecordCaloFaceParticle(G4int pdgCode, G4double energy, G4double time,
+                                G4double x, G4double y, G4double z,
+                                G4double px, G4double py, G4double pz,
+                                G4int trackID, G4int eventID, G4double weight = 1.0);
+    
     // Export functions
     void WriteCSV(const G4String& filename) const;
     void WritePhotonFluxCSV(const G4String& filename) const;
     void WriteBremsPhotonFluxCSV(const G4String& filename) const;
     void WriteBackgroundCSV(const G4String& filename) const;
+    void WriteCaloFaceCSV(const G4String& filename) const;
     
     // Get binned photon spectrum for quick alplib input
     // Returns map of energy bin center (MeV) -> count
@@ -74,6 +81,7 @@ public:
     G4int GetBremsPhotonCount() const { return fBremsPhotons.size(); }
     G4int GetNeutronCount() const;
     G4int GetTotalParticleCount() const { return fAllParticles.size(); }
+    G4int GetCaloFaceCount() const { return fCaloFaceParticles.size(); }
     
     // Clear data between runs
     void Reset();
@@ -82,6 +90,7 @@ public:
     const std::vector<FluxParticle>& GetPhotons() const { return fPhotons; }
     const std::vector<FluxParticle>& GetBremsPhotons() const { return fBremsPhotons; }
     const std::vector<FluxParticle>& GetAllParticles() const { return fAllParticles; }
+    const std::vector<FluxParticle>& GetCaloFaceParticles() const { return fCaloFaceParticles; }
     
 private:
     DamsaFluxCollector();
@@ -91,6 +100,7 @@ private:
     std::vector<FluxParticle> fPhotons;        // Photons at target exit
     std::vector<FluxParticle> fBremsPhotons;   // Bremsstrahlung photons inside target (for alplib signal)
     std::vector<FluxParticle> fAllParticles;   // All particles (for background)
+    std::vector<FluxParticle> fCaloFaceParticles;  // All particles at CaloEntrance
 };
 
 // Implementation
@@ -150,11 +160,33 @@ inline void DamsaFluxCollector::RecordParticle(G4int pdgCode, G4double energy, G
     fAllParticles.push_back(p);
 }
 
+inline void DamsaFluxCollector::RecordCaloFaceParticle(G4int pdgCode, G4double energy, G4double time,
+                                                        G4double x, G4double y, G4double z,
+                                                        G4double px, G4double py, G4double pz,
+                                                        G4int trackID, G4int eventID, G4double weight)
+{
+    FluxParticle p;
+    p.pdgCode = pdgCode;
+    p.energy = energy;
+    p.time = time;
+    p.x = x;
+    p.y = y;
+    p.z = z;
+    p.px = px;
+    p.py = py;
+    p.pz = pz;
+    p.weight = weight;
+    p.trackID = trackID;
+    p.eventID = eventID;
+    fCaloFaceParticles.push_back(p);
+}
+
 inline void DamsaFluxCollector::Reset()
 {
     fPhotons.clear();
     fBremsPhotons.clear();
     fAllParticles.clear();
+    fCaloFaceParticles.clear();
 }
 
 inline G4int DamsaFluxCollector::GetNeutronCount() const
@@ -283,6 +315,41 @@ inline void DamsaFluxCollector::WriteBackgroundCSV(const G4String& filename) con
     
     outFile.close();
     G4cout << "Background data written to: " << fullPath << G4endl;
+}
+
+inline void DamsaFluxCollector::WriteCaloFaceCSV(const G4String& filename) const
+{
+    mkdir("output", 0755);
+    std::string fullPath = "output/" + filename;
+    std::ofstream outFile(fullPath);
+    
+    if (!outFile.is_open()) {
+        G4cout << "ERROR: Could not open file " << fullPath << " for writing!" << G4endl;
+        return;
+    }
+    
+    // CSV header (same format as WriteCSV)
+    outFile << "pdg,energy_MeV,time_ns,x_mm,y_mm,z_mm,px,py,pz,weight,trackID,eventID" << std::endl;
+    
+    // Write all particles at calorimeter face
+    for (const auto& p : fCaloFaceParticles) {
+        outFile << p.pdgCode << ","
+                << std::scientific << std::setprecision(6)
+                << p.energy/MeV << ","
+                << p.time/ns << ","
+                << p.x/mm << ","
+                << p.y/mm << ","
+                << p.z/mm << ","
+                << p.px << ","
+                << p.py << ","
+                << p.pz << ","
+                << p.weight << ","
+                << p.trackID << ","
+                << p.eventID << std::endl;
+    }
+    
+    outFile.close();
+    G4cout << "Calo face data written to: " << fullPath << " (" << fCaloFaceParticles.size() << " particles)" << G4endl;
 }
 
 inline std::map<G4double, G4int> DamsaFluxCollector::GetBinnedPhotonSpectrum(G4double binWidth) const

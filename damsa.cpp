@@ -20,8 +20,6 @@ int main (int argc, char *argv[])
     runManager->SetUserInitialization(new DamsaPhysicsList());
     runManager->SetUserInitialization(new DamsaActionInitialization());
 
-    runManager->Initialize();
-
     G4UIExecutive *ui = 0;
     if (argc == 1) ui = new G4UIExecutive(argc, argv);
 
@@ -41,10 +39,13 @@ int main (int argc, char *argv[])
         UIManager->ApplyCommand(command+fileName);
     }
     
-    DamsaAnalysis::Instance()->PrintSummary();
-
+    // Delete UI and vis manager first so that G4cout is unregistered from the
+    // Qt stream buffer before PrintSummary flushes output to the terminal.
     delete ui;
     delete visManager;
+
+    DamsaAnalysis::Instance()->PrintSummary();
+
     delete runManager;
 
     return 0;

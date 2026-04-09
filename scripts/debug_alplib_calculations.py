@@ -10,8 +10,6 @@ It also explains:
 2. What is beam current 62.5 uA?
 3. What are "primaries"?
 4. Why are electrons involved in a photon-based ALP search?
-
-Author: Debug session
 """
 
 import numpy as np
@@ -432,7 +430,7 @@ def analyze_separability(generator, exposure_days=30.0):
         print(f"    Mean:   {energies_1.mean():.2f} MeV")
         
         # Separability analysis
-        angle_cut = 20.0  # degrees
+        angle_cut = 10.0  # degrees
         energy_cut = 100.0  # MeV
         
         high_angle = opening_angles_deg >= angle_cut

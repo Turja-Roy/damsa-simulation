@@ -10,8 +10,6 @@ Output: Numpy array format for alplib FluxPrimakoffIsotropic
 
 Usage:
     python flux_converter.py output/photon_flux_target_exit.csv --nprimaries 1000
-    
-Author: DAMSA Collaboration
 """
 
 import argparse

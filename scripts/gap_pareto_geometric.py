@@ -15,8 +15,6 @@ Key features:
 Usage:
     python scripts/gap_pareto_geometric.py
     python scripts/gap_pareto_geometric.py --n-events 10000 --alp-mass 10 --coupling 1e-5
-
-Author: DAMSA Collaboration
 """
 
 import os
@@ -414,7 +412,7 @@ def calculate_geometric_acceptance(
     gap_cm: float,
     target_exit_z: float = TARGET_EXIT_Z,
     calo_half_width: float = CALO_HALF_WIDTH,
-    angle_cut_high: float = 20.0,
+    angle_cut_high: float = 10.0,
     energy_cut: float = 100.0
 ) -> Dict[str, Any]:
     """

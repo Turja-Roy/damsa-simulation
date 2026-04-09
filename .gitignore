@@ -12,8 +12,6 @@ __pycache__/
 *.egg
 
 # Optimization outputs
-optimization_results/
-optimization_cache/
 output/
 
 # alplib (external dependency)

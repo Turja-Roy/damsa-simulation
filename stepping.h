@@ -11,6 +11,8 @@
 #include "G4VProcess.hh"
 #include "analysis.h"
 #include "FluxData.h"
+#include "damsa_config.h"
+#include "alp_generator.h"
 
 class DamsaSteppingAction : public G4UserSteppingAction
 {
@@ -34,6 +36,15 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
     G4String particleName = track->GetDefinition()->GetParticleName();
     G4int trackID = track->GetTrackID();
     G4int eventID = G4RunManager::GetRunManager()->GetCurrentEvent()->GetEventID();
+    
+    // Get event weight: from ALP generator in ALPInject mode, 1.0 otherwise
+    G4double evtWeight = 1.0;
+    if (DamsaConfig::gRunMode == DamsaConfig::RunMode::ALPInject) {
+        DamsaALPDecayGenerator* alpGen = DamsaALPDecayGenerator::Instance();
+        if (alpGen) {
+            evtWeight = alpGen->GetCurrentEventWeight();
+        }
+    }
 
     // ─── Bremsstrahlung photon scoring INSIDE the target ────────────────────
     // MUST be before the fGeomBoundary early-return below.
@@ -82,6 +93,10 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
     G4double cosTheta = momentum.z();
     if(cosTheta < 0) return;
 
+    // Direction-only angle w.r.t. +z beam axis.  No spatial origin — the same
+    // value is recorded regardless of where the particle was created.  The
+    // particle's lab position (x,y,z) is stored separately in FluxParticle and
+    // can be used in post-processing to compute any geometric angle offline.
     G4double angle = momentum.angle(G4ThreeVector(0, 0, 1));
     G4ThreeVector position = postStepPoint->GetPosition();
     G4double time = postStepPoint->GetGlobalTime();
@@ -106,21 +121,6 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
                 trackID, eventID);
         }
     }
-    // Mid-target scoring plane
-    else if(volumeName == "physScoringTargetMid") {
-        if(!DamsaAnalysis::Instance()->WasTrackRecorded(trackID, "TargetMid")) {
-            DamsaAnalysis::Instance()->RecordParticle(particleName, energy, "TargetMid", angle, trackID, isPrimary);
-            
-            // Also record photons at mid-target for alplib
-            if(particleName == "gamma") {
-                DamsaFluxCollector::Instance()->RecordPhoton(
-                    energy, time,
-                    position.x(), position.y(), position.z(),
-                    momentum.x(), momentum.y(), momentum.z(),
-                    trackID, eventID);
-            }
-        }
-    }
     // Magnet entrance scoring plane
     else if(volumeName == "physScoringMagnetEntrance") {
         if(!DamsaAnalysis::Instance()->WasTrackRecorded(trackID, "MagnetEntrance")) {
@@ -131,6 +131,12 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
     else if(volumeName == "physScoringCaloEntrance") {
         if(!DamsaAnalysis::Instance()->WasTrackRecorded(trackID, "CaloEntrance")) {
             DamsaAnalysis::Instance()->RecordParticle(particleName, energy, "CaloEntrance", angle, trackID, isPrimary);
+            // Record particle data at calo face for SNR analysis (with G4 event weight)
+            DamsaFluxCollector::Instance()->RecordCaloFaceParticle(
+                pdgCode, energy, time,
+                position.x(), position.y(), position.z(),
+                momentum.x(), momentum.y(), momentum.z(),
+                trackID, eventID, evtWeight);
         }
     }
     // Calorimeter exit scoring plane

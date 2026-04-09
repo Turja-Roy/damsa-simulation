@@ -16,8 +16,6 @@ Usage:
     python root_config_plots.py --config-file config.json
     python root_config_plots.py --results-dir optimization_results/
     python root_config_plots.py --compare config1.json config2.json config3.json
-
-Author: DAMSA Collaboration
 """
 
 import numpy as np

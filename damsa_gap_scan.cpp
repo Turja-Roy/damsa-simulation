@@ -148,7 +148,7 @@ int main(int argc, char** argv)
                 G4cout << "Gap: " << gap << " cm, Target: " << width << "x" << width << "x" << length << " cm3" << G4endl;
                 
                 DamsaDetectorConstruction* detector = new DamsaDetectorConstruction();
-                detector->SetGapDistance(gap * cm);
+                detector->SetVDCLength(gap * cm);
                 detector->SetTargetLength(length * cm);
                 detector->SetTargetTransverse(width * cm);
                 

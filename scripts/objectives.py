@@ -13,8 +13,6 @@ distributions that allow separation from the ALP signal photons.
 
 ALP signal photons: Come from target, decay in flight, isotropic in ALP frame
 Background photons: Direct bremsstrahlung from target, forward-peaked
-
-Author: DAMSA Collaboration
 """
 
 import numpy as np

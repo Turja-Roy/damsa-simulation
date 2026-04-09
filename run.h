@@ -36,6 +36,9 @@ void DamsaRunAction::EndOfRunAction(const G4Run* run) {
     DamsaFluxCollector::Instance()->WritePhotonFluxCSV(prefix + "photon_flux_target_exit.csv");
     DamsaFluxCollector::Instance()->WriteBackgroundCSV(prefix + "background_target_exit.csv");
     DamsaFluxCollector::Instance()->WriteCSV(prefix + "all_particles_target_exit.csv");
+    
+    // Write calo-face particle CSV for SNR analysis
+    DamsaFluxCollector::Instance()->WriteCaloFaceCSV(prefix + "calo_face_particles.csv");
 
     // Brems-flux files only make sense for the electron-beam mode.  In ALP
     // injection mode there are no electrons → these would be empty/zero and
@@ -52,7 +55,8 @@ void DamsaRunAction::EndOfRunAction(const G4Run* run) {
     G4cout << "Photons at target exit: " << DamsaFluxCollector::Instance()->GetPhotonCount() << G4endl;
     G4cout << "Brems photons inside target: " << DamsaFluxCollector::Instance()->GetBremsPhotonCount() << G4endl;
     G4cout << "Neutrons at target exit: " << DamsaFluxCollector::Instance()->GetNeutronCount() << G4endl;
-    G4cout << "Total particles recorded: " << DamsaFluxCollector::Instance()->GetTotalParticleCount() << G4endl;
+    G4cout << "Total particles at target exit: " << DamsaFluxCollector::Instance()->GetTotalParticleCount() << G4endl;
+    G4cout << "Particles at calo face: " << DamsaFluxCollector::Instance()->GetCaloFaceCount() << G4endl;
     G4cout << "================================\n" << G4endl;
 }
 

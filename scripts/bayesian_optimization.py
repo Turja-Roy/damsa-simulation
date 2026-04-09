@@ -21,8 +21,6 @@ Decision Variables (5 total):
 Strategy:
 1. Initial phase: Use Bayesian optimization for efficient exploration
 2. After sufficient data: Hand off to NSGA-II for Pareto front refinement
-
-Author: DAMSA Collaboration
 """
 
 import numpy as np

@@ -28,7 +28,9 @@ void DamsaActionInitialization::Build () const {
                         FatalException,
                         "ALPInject mode requested but DamsaConfig::gALPDecayCSV is empty.");
         }
-        SetUserAction(new DamsaALPDecayGenerator(DamsaConfig::gALPDecayCSV));
+        SetUserAction(new DamsaALPDecayGenerator(DamsaConfig::gALPDecayCSV,
+                                                 DamsaConfig::gALPVertexZ_cm,
+                                                 DamsaConfig::gALPRefireFactor));
     } else {
         SetUserAction(new DamsaPrimaryGenerator());
     }

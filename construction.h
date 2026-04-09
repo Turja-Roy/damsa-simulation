@@ -23,6 +23,8 @@
 #include "G4TransportationManager.hh"
 #include "G4ChordFinder.hh"
 
+class DamsaDetectorMessenger;  // forward declaration — defined in construction_messenger.h
+
 class DamsaDetectorConstruction : public G4VUserDetectorConstruction
 {
 public:
@@ -31,12 +33,17 @@ public:
 
     virtual G4VPhysicalVolume* Construct() override;
 
-    void SetGapDistance(G4double gap);
+    void SetVDCLength(G4double length);
     void SetTargetLength(G4double length);
     void SetTargetTransverse(G4double size);
+    void SetCaloSizeXY(G4double xy);
 
-    G4double GetTargetExitZ() const { return fTargetExitZ; }
-    G4double GetCaloEntranceZ() const { return fCaloEntranceZ; }
+    G4double GetTargetExitZ()    const { return fTargetExitZ; }
+    G4double GetCaloEntranceZ()  const { return fCaloEntranceZ; }
+    G4double GetVDCLength()      const { return fVDCLength; }
+    G4double GetCaloSizeXY()     const { return fCaloSizeXY; }
+    // Target centre = exit face − half target thickness
+    G4double GetTargetCentreZ()  const { return fTargetExitZ - fTargetZ / 2.0; }
 
 private:
     virtual void ConstructSDandField() override;
@@ -47,12 +54,14 @@ private:
     void BuildMagnetAndTrackerRegion(G4LogicalVolume* worldLV, G4double& zPos);
     void BuildCalorimeter(G4LogicalVolume* worldLV, G4double& zPos);
 
+    DamsaDetectorMessenger* fMessenger;
+
     G4double fWorldSize;
     G4double fTargetX, fTargetY, fTargetZ;
     G4double fTargetExitZ;
-    G4double fGapDistance;
+    G4double fVDCLength;
     G4double fCaloEntranceZ;
-    G4double fChamberInnerRadius, fChamberWallThickness, fChamberLength;
+    G4double fChamberInnerRadius, fChamberWallThickness;
     G4double fMagnetOuterSizeXY, fMagnetOuterSizeZ, fMagnetHollowSizeXY, fMagnetHollowSizeZ;
     G4double fTrackerSizeXY, fTrackerThickness;
     G4int fNumTrackers;
@@ -60,12 +69,12 @@ private:
     G4int fNumCaloLayers, fNumCrystalsPerLayer;
 
     G4LogicalVolume* fLogicSiTracker;
-    G4LogicalVolume* fLogicCrystal;
+    G4LogicalVolume* fLogicCrystal;   // null when using simplified CsI box geometry
+    G4LogicalVolume* fLogicECAL;      // monolithic CsI box (simplified geometry)
     G4LogicalVolume* fLogicMagnetHollow;
     G4LogicalVolume* fLogicScoringMagnetEntrance;
     G4LogicalVolume* fLogicScoringCaloEntrance;
     G4LogicalVolume* fLogicScoringCaloExit;
-    G4LogicalVolume* fLogicScoringTargetMid;
     G4MagneticField* fMagField;
     
     G4Material* fMatAir;

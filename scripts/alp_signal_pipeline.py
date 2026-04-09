@@ -54,7 +54,12 @@ BEAM_CURRENT_UA   = 62.5      # μA  (confirm with SLAC ops)
 ELECTRONS_PER_S   = BEAM_CURRENT_UA * 1e-6 / CHARGE_COULOMBS
 
 TARGET_LENGTH_M   = 0.10      # 10 cm tungsten dump
-DET_DIST_M        = 0.47      # gap from target exit to calorimeter face [m]
+TARGET_HALF_M     = TARGET_LENGTH_M / 2.0   # 5 cm — reference for decay vertex (target centre)
+VDC_M             = 0.30      # vacuum decay chamber length [m]  (user-tunable, scan range 0.30–0.60 m)
+MAGNET_M          = 0.12      # magnet + tracker region length [m]  (fixed hardware)
+# DET_DIST_M: target centre → calo face = half-target + VDC + magnet
+# (decay vertex is approximated at target centre for transverse acceptance mask)
+DET_DIST_M        = TARGET_HALF_M + VDC_M + MAGNET_M
 DET_LENGTH_M      = 0.44      # CsI depth [m]
 DET_AREA_M2       = 0.0144    # 12 cm × 12 cm calorimeter face [m²]
 DET_HALF_X_M      = 0.06      # half-side of calorimeter face along x [m]
@@ -151,7 +156,7 @@ def pick_safe_coupling(ma_MeV, photon_flux, target_decay_length_m=5.0):
     """
     Return g (GeV⁻¹) so that the mean ALP boosted decay length ≈ target_decay_length_m,
     ensuring surv_prob ≈ 1 (ALPs reach the detector).  DAMSA detector distance is
-    ~0.47 m, so 5 m gives surv_prob ≈ 1 − 0.47/5 ≈ 0.9.
+    ~0.52 m (target centre → calo face), so 5 m gives surv_prob ≈ 1 − 0.52/5 ≈ 0.9.
 
         Γ = g² mₐ³ / (64π),  L_decay = (Eₐ/mₐ)(ℏc/Γ)
         ⇒ g² = 64π · ℏc · Eₐ / (L_decay · mₐ³)       [MeV⁻²]
@@ -356,8 +361,10 @@ def compute_opening_angles(photon_flux, ma_MeV, coupling_GeV=None, n_samples=10,
 
     mean_theta_mrad = 1000.0 * np.average(thetas, weights=wgts)
 
-    # Apply analytic transverse acceptance cut: both γ must hit calo face
-    accept = transverse_acceptance_mask(p41_list, p42_list)
+    # Apply analytic transverse acceptance cut: both γ must hit calo face.
+    # Pass det_dist_m explicitly so it reads the current DET_DIST_M global
+    # (which may have been updated by --vdc-length).
+    accept = transverse_acceptance_mask(p41_list, p42_list, det_dist_m=DET_DIST_M)
     thetas_in = thetas[accept]
     wgts_in   = wgts[accept]
     if wgts_in.sum() > 0:
@@ -561,6 +568,7 @@ def plot_sensitivity(mass_grid, g_lower, g_upper, out_dir="plots"):
 # ──────────────────────────────────────────────────────────────────────────────
 
 def main():
+    global VDC_M, DET_DIST_M  # noqa: PLW0603  — may be overridden by --vdc-length
     parser = argparse.ArgumentParser(description="DAMSA ALP signal pipeline")
     parser.add_argument("--flux", default=None,
                         help="Path to Geant4 alplib_brems_flux.csv")
@@ -581,7 +589,17 @@ def main():
                         help="Skip sensitivity curve calculation")
     parser.add_argument("--outdir", default="output",
                         help="Output directory for CSVs and plots")
+    parser.add_argument("--vdc-length", type=float, default=None, metavar="METERS",
+                        help="Vacuum decay chamber length in metres (default: %.2f m = %.0f cm). "
+                             "Updates DET_DIST_M = TARGET_HALF + VDC + MAGNET." % (VDC_M, VDC_M*100))
     args = parser.parse_args()
+
+    # ── Apply VDC length override ─────────────────────────────────────────────
+    if args.vdc_length is not None:
+        VDC_M      = args.vdc_length
+        DET_DIST_M = TARGET_HALF_M + VDC_M + MAGNET_M
+        print(f"[geometry] VDC length overridden to {VDC_M*100:.1f} cm → "
+              f"DET_DIST_M = {DET_DIST_M*100:.1f} cm")
 
     # ── Load / build photon flux ──────────────────────────────────────────────
     if args.flux and not args.analytic:

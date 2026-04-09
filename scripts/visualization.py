@@ -8,8 +8,6 @@ This module provides:
 3. Convergence plots (hypervolume over iterations)
 4. Trade-off analysis between objectives
 5. Solution comparison and ranking
-
-Author: DAMSA Collaboration
 """
 
 import numpy as np

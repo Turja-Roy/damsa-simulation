@@ -22,8 +22,6 @@ Usage:
     
     # Full report with all plots
     python alplib_signal_plots.py --flux-file photon_flux.csv --full-report
-
-Author: DAMSA Collaboration
 """
 
 import numpy as np

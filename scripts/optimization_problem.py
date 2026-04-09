@@ -28,8 +28,6 @@ Constraints:
     - Target dimensions within physical limits
     - Gap + target/2 fits in experimental hall
     - Valid timing window (t_max > t_min)
-
-Author: DAMSA Collaboration
 """
 
 import numpy as np

@@ -22,9 +22,11 @@ namespace DamsaConfig {
 enum class RunMode { ElectronBeam, ALPInject };
 
 // All inline so multiple translation units link cleanly without a .cpp.
-inline RunMode    gRunMode       = RunMode::ElectronBeam;
-inline std::string gALPDecayCSV  = "";   // path to alp_decay_photons_maX.csv
-inline std::string gOutputPrefix = "";   // prepended to every CSV/ROOT file in run.h
+inline RunMode    gRunMode        = RunMode::ElectronBeam;
+inline std::string gALPDecayCSV   = "";     // path to alp_decay_photons_maX.csv
+inline std::string gOutputPrefix  = "";     // prepended to every CSV/ROOT file in run.h
+inline double     gALPVertexZ_cm  = -45.0; // ALP production vertex z (target centre, cm)
+inline int        gALPRefireFactor = 1;    // number of times each ALP row is re-fired
 
 }  // namespace DamsaConfig
 

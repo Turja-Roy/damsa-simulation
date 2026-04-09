@@ -108,7 +108,6 @@ inline void CreatePlotDirectories() {
     mkdir("plots", 0755);
     mkdir("plots/png", 0755);
     mkdir("plots/png/TargetExit", 0755);
-    mkdir("plots/png/TargetMid", 0755);
     mkdir("plots/png/MagnetEntrance", 0755);
     mkdir("plots/png/CaloEntrance", 0755);
     mkdir("plots/png/CaloExit", 0755);

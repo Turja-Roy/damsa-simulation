@@ -5,8 +5,8 @@ GAP Pareto Optimization Scan for DAMSA
 Scans decay chamber gap (distance from target exit to calorimeter entrance)
 from 42 cm to 52 cm in 1 cm steps, calculating:
 - ALP signal using target exit photons (via alplib Primakoff production)
-- Separability: fraction of ALP decays with opening angle >= 20 deg OR
-  (opening angle < 20 deg AND both photon energies > 100 MeV)
+- Separability: fraction of ALP decays with opening angle >= 10 deg OR
+  (opening angle < 10 deg AND both photon energies > 100 MeV)
 - Weighted background at calorimeter entrance: photons + 10*neutrons
 
 Generates Pareto front visualization: maximize separability, minimize weighted background.
@@ -14,8 +14,6 @@ Generates Pareto front visualization: maximize separability, minimize weighted b
 Usage:
     python gap_pareto_scan.py
     python gap_pareto_scan.py --n-events 10000 --alp-mass 20 --coupling 1e-4
-
-Author: DAMSA Collaboration
 """
 
 import os
@@ -55,8 +53,8 @@ def parse_args():
                         help='Exposure time in days for ALP calculation (default: 0.0417 = 1 hour)')
     parser.add_argument('--coupling', type=float, default=1e-5,
                         help='ALP coupling in GeV^-1 (default: 1e-4, good statistics for optimization)')
-    parser.add_argument('--angle-cut-high', type=float, default=20.0,
-                        help='High opening angle cut (degrees) - separable if >= this (default: 20)')
+    parser.add_argument('--angle-cut-high', type=float, default=10.0,
+                        help='High opening angle cut (degrees) - separable if >= this (default: 10)')
     parser.add_argument('--energy-cut', type=float, default=100.0,
                         help='Energy cut for separability in MeV (default: 100)')
     parser.add_argument('--skip-sim', action='store_true',
@@ -211,14 +209,14 @@ def calculate_separability(opening_angles_deg: np.ndarray,
                            photon_energies_1: np.ndarray,
                            photon_energies_2: np.ndarray,
                            weights: np.ndarray,
-                           angle_cut_high: float = 20.0,
+                           angle_cut_high: float = 10.0,
                            energy_cut_MeV: float = 100.0) -> float:
     """
     Calculate separability fraction based on opening angle and energy.
     
     Separable if:
-    - opening_angle >= angle_cut_high (20 deg), OR
-    - opening_angle < angle_cut_high (20 deg) AND both photon energies > energy_cut (100 MeV)
+    - opening_angle >= angle_cut_high (10 deg), OR
+    - opening_angle < angle_cut_high (10 deg) AND both photon energies > energy_cut (100 MeV)
     
     Parameters
     ----------
@@ -231,7 +229,7 @@ def calculate_separability(opening_angles_deg: np.ndarray,
     weights : array
         Event weights for proper normalization
     angle_cut_high : float
-        High opening angle cut in degrees (default: 20)
+        High opening angle cut in degrees (default: 10)
     energy_cut_MeV : float
         Energy cut in MeV for low-angle separability (default: 100)
     
@@ -271,7 +269,7 @@ def calculate_alp_signal_with_separability(
     coupling: float = 1e-5,
     alp_mass: float = 10.0,
     detector_distance_m: float = 1.0,
-    angle_cut_high: float = 20.0,
+    angle_cut_high: float = 10.0,
     energy_cut_MeV: float = 100.0
 ) -> Dict[str, Any]:
     """
@@ -296,7 +294,7 @@ def calculate_alp_signal_with_separability(
     detector_distance_m : float
         Detector distance in meters
     angle_cut_high : float
-        High opening angle cut in degrees (default: 20)
+        High opening angle cut in degrees (default: 10)
     energy_cut_MeV : float
         Energy cut for low-angle separability
     

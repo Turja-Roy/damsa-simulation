@@ -15,8 +15,6 @@ Usage:
     python run_optimization.py --mode hybrid --n-bo-iter 50 --n-nsga-gen 100
     python run_optimization.py --mode bo-only --n-bo-iter 100
     python run_optimization.py --mode nsga-only --n-nsga-gen 200
-
-Author: DAMSA Collaboration
 """
 
 import argparse

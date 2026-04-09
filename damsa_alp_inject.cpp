@@ -2,17 +2,23 @@
 //
 // Reads a CSV produced by scripts/alp_signal_pipeline.py
 // (alp_decay_photons_maX.csv) and fires the γγ pairs as primary particles
-// at the tungsten target centre, then propagates them through the magnet,
-// air gap, and CsI calorimeter for full detector response simulation.
+// at the tungsten target centre, then propagates them through the VDC
+// (vacuum decay chamber), magnet region, and CsI calorimeter for full
+// detector response simulation.
 //
 // Usage:
-//     ./damsa_alp_inject <decay_csv> [macro.mac]
+//     ./damsa_alp_inject <decay_csv> [macro.mac] [refire_factor]
 //
 // Examples:
-//     ./damsa_alp_inject output/alp_decay_photons_ma100MeV.csv run.mac
+//     ./damsa_alp_inject output/alp_decay_photons_ma100MeV.csv run_alp.mac
+//     ./damsa_alp_inject output/alp_decay_photons_ma50MeV.csv run_alp.mac 5
 //     ./damsa_alp_inject output/alp_decay_photons_ma50MeV.csv
 //
 // If no macro is given, an interactive UI session opens.
+// The refire_factor controls how many times each input row is re-fired
+// (default: 1). Row weights are divided by this factor. The total beamOn
+// count is auto-computed as (n_rows_loaded * refire_factor) and issued
+// from here after the macro performs /run/initialize.
 //
 // The output files written by run.h are prefixed with the basename of the
 // input CSV (e.g. "alp_decay_photons_ma100MeV_") so that successive mass
@@ -20,6 +26,7 @@
 
 #include <iostream>
 #include <string>
+#include <cstdlib>
 
 #include "G4RunManager.hh"
 #include "G4UImanager.hh"
@@ -32,6 +39,7 @@
 #include "damsa_config.h"
 #include "action.h"
 #include "analysis.h"
+#include "alp_generator.h"
 
 namespace {
 std::string basenameNoExt(const std::string& path) {
@@ -47,23 +55,44 @@ int main(int argc, char* argv[])
 {
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0]
-                  << " <alp_decay_photons.csv> [macro.mac]\n";
+                  << " <alp_decay_photons.csv> [macro.mac] [refire_factor]\n"
+                  << "  refire_factor: number of times each row is re-fired (default: 1)\n";
         return 1;
     }
 
     const std::string csvPath = argv[1];
 
+    // Parse optional refire factor (positional arg 3, or after macro)
+    int refireFactor = 1;  // default
+    if (argc >= 4) {
+        refireFactor = std::atoi(argv[3]);
+        if (refireFactor <= 0) {
+            std::cerr << "Warning: invalid refire_factor '" << argv[3] 
+                      << "', using default 100\n";
+            refireFactor = 100;
+        }
+    }
+
     // Configure the run BEFORE constructing the action initialization, so
     // that DamsaActionInitialization::Build() picks the ALP generator.
-    DamsaConfig::gRunMode      = DamsaConfig::RunMode::ALPInject;
-    DamsaConfig::gALPDecayCSV  = csvPath;
-    DamsaConfig::gOutputPrefix = basenameNoExt(csvPath) + "_";
+    DamsaConfig::gRunMode       = DamsaConfig::RunMode::ALPInject;
+    DamsaConfig::gALPDecayCSV   = csvPath;
+    DamsaConfig::gOutputPrefix  = basenameNoExt(csvPath) + "_";
+    DamsaConfig::gALPRefireFactor = refireFactor;
 
-    G4cout << "[damsa_alp_inject] CSV         : " << csvPath << G4endl;
-    G4cout << "[damsa_alp_inject] Output pfx  : " << DamsaConfig::gOutputPrefix << G4endl;
+    G4cout << "[damsa_alp_inject] CSV          : " << csvPath << G4endl;
+    G4cout << "[damsa_alp_inject] Output pfx   : " << DamsaConfig::gOutputPrefix << G4endl;
+    G4cout << "[damsa_alp_inject] Refire factor: " << refireFactor << G4endl;
+
+    // Query target centre Z from the detector before handing it to the run manager,
+    // so the ALP generator fires from the correct vertex (target centre follows
+    // target dimensions automatically via GetTargetCentreZ()).
+    auto* detector = new DamsaDetectorConstruction();
+    DamsaConfig::gALPVertexZ_cm = detector->GetTargetCentreZ() / cm;
+    G4cout << "[damsa_alp_inject] ALP vertex Z: " << DamsaConfig::gALPVertexZ_cm << " cm" << G4endl;
 
     G4RunManager* runManager = new G4RunManager();
-    runManager->SetUserInitialization(new DamsaDetectorConstruction());
+    runManager->SetUserInitialization(detector);
     runManager->SetUserInitialization(new DamsaPhysicsList());
     runManager->SetUserInitialization(new DamsaActionInitialization());
     runManager->Initialize();
@@ -83,12 +112,31 @@ int main(int argc, char* argv[])
         G4String command  = "/control/execute ";
         G4String fileName = argv[2];
         UIManager->ApplyCommand(command + fileName);
+
+        // Auto-size beamOn from the number of rows actually loaded by the
+        // generator (zero-weight rows have already been dropped in
+        // DamsaALPDecayGenerator::LoadEvents). This guarantees every row is
+        // fired exactly `refireFactor` times regardless of input CSV size.
+        auto* gen = DamsaALPDecayGenerator::Instance();
+        if (gen) {
+            G4int nBeamOn = gen->GetNEvents() * refireFactor;
+            G4cout << "[damsa_alp_inject] Issuing /run/beamOn " << nBeamOn
+                   << "  (" << gen->GetNEvents() << " rows × " << refireFactor
+                   << " refires)" << G4endl;
+            UIManager->ApplyCommand("/run/beamOn " + std::to_string(nBeamOn));
+        } else {
+            G4cerr << "[damsa_alp_inject] ERROR: ALP generator instance is null "
+                   << "after macro execution; no beamOn issued." << G4endl;
+        }
     }
+
+    // Delete UI and vis manager first so that G4cout is unregistered from the
+    // Qt stream buffer before PrintSummary flushes output to the terminal.
+    delete ui;
+    delete visManager;
 
     DamsaAnalysis::Instance()->PrintSummary();
 
-    delete ui;
-    delete visManager;
     delete runManager;
     return 0;
 }
