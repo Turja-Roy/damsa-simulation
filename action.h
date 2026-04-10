@@ -15,11 +15,16 @@ public:
     DamsaActionInitialization();
     virtual ~DamsaActionInitialization();
 
+    virtual void BuildForMaster() const;
     virtual void Build() const;
 };
 
 DamsaActionInitialization::DamsaActionInitialization () {}
 DamsaActionInitialization::~DamsaActionInitialization () {}
+
+void DamsaActionInitialization::BuildForMaster() const {
+    SetUserAction(new DamsaRunAction());
+}
 
 void DamsaActionInitialization::Build () const {
     if (DamsaConfig::gRunMode == DamsaConfig::RunMode::ALPInject) {

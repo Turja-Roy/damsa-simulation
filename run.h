@@ -3,6 +3,7 @@
 
 #include "G4UserRunAction.hh"
 #include "G4Run.hh"
+#include "G4Threading.hh"
 
 #include "analysis.h"
 #include "FluxData.h"
@@ -18,15 +19,14 @@ public:
 };
 
 void DamsaRunAction::BeginOfRunAction(const G4Run*) {
+    if (!G4Threading::IsMasterThread()) return;
     // Reset flux collector at start of each run
     DamsaFluxCollector::Instance()->Reset();
 }
 
 void DamsaRunAction::EndOfRunAction(const G4Run* run) {
-    // Merge thread-local data from worker threads into master instance
-    DamsaAnalysis::Instance()->Merge();
-    DamsaFluxCollector::Instance()->Merge();
-    
+    if (!G4Threading::IsMasterThread()) return;
+
     const std::string& prefix = DamsaConfig::gOutputPrefix;
     const bool isALPInject = (DamsaConfig::gRunMode == DamsaConfig::RunMode::ALPInject);
 

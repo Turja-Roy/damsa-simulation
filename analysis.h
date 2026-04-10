@@ -3,6 +3,8 @@
 
 #include "globals.hh"
 #include "G4SystemOfUnits.hh"
+#include "G4Threading.hh"
+#include "G4AutoLock.hh"
 #include <iostream>
 #include <fstream>
 #include <iomanip>
@@ -35,9 +37,6 @@ public:
     void Reset();
     void ResetEventTracking();
     
-    // MT support: merge thread-local data into master instance
-    void Merge();
-    
     G4int GetTargetExitPhotons() const;
     G4int GetTargetExitNeutrons() const;
     G4int GetCaloEntrancePhotons() const;
@@ -50,12 +49,13 @@ public:
     // Config prefix for output filenames (e.g., "Tz10_xy5_G50_")
     void SetConfigPrefix(const std::string& prefix) { fConfigPrefix = prefix; }
     std::string GetConfigPrefix() const { return fConfigPrefix; }
-    
+
 private:
     DamsaAnalysis();
     ~DamsaAnalysis();
-    static G4ThreadLocal DamsaAnalysis* fInstance;
-    
+    static DamsaAnalysis* fInstance;
+    static G4Mutex fMutex;
+
     std::map<G4String, DamsaLocationData> fLocations;
     std::string fConfigPrefix;  // Prefix for config-specific filenames
 };

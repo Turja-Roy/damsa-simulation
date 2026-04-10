@@ -28,7 +28,8 @@
 #include <string>
 #include <cstdlib>
 
-#include "G4RunManager.hh"
+#include "G4MTRunManager.hh"
+#include "G4Threading.hh"
 #include "G4UImanager.hh"
 #include "G4VisExecutive.hh"
 #include "G4VisManager.hh"
@@ -91,7 +92,8 @@ int main(int argc, char* argv[])
     DamsaConfig::gALPVertexZ_cm = detector->GetTargetCentreZ() / cm;
     G4cout << "[damsa_alp_inject] ALP vertex Z: " << DamsaConfig::gALPVertexZ_cm << " cm" << G4endl;
 
-    G4RunManager* runManager = new G4RunManager();
+    G4MTRunManager* runManager = new G4MTRunManager();
+    runManager->SetNumberOfThreads(G4Threading::G4GetNumberOfCores());
     runManager->SetUserInitialization(detector);
     runManager->SetUserInitialization(new DamsaPhysicsList());
     runManager->SetUserInitialization(new DamsaActionInitialization());

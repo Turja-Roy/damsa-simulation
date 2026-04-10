@@ -1,6 +1,7 @@
 #include <iostream>
 
-#include "G4RunManager.hh"
+#include "G4MTRunManager.hh"
+#include "G4Threading.hh"
 #include "G4UImanager.hh"
 #include "G4VisExecutive.hh"
 #include "G4VisManager.hh"
@@ -14,7 +15,8 @@
 
 int main (int argc, char *argv[])
 {
-    G4RunManager *runManager = new G4RunManager();
+    G4MTRunManager *runManager = new G4MTRunManager();
+    runManager->SetNumberOfThreads(G4Threading::G4GetNumberOfCores());
     
     runManager->SetUserInitialization(new DamsaDetectorConstruction());
     runManager->SetUserInitialization(new DamsaPhysicsList());

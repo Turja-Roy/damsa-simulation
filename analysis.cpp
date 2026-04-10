@@ -7,8 +7,11 @@ TCanvas* CreateOverlayCanvasMap(std::map<G4String, TH1D*>& energyHists,
 void WriteEvolutionHistograms(TFile* rootFile, std::map<G4String, DamsaLocationData>& locations,
                               const std::string& configPrefix);
 
-G4ThreadLocal DamsaAnalysis* DamsaAnalysis::fInstance = nullptr;
-G4ThreadLocal DamsaFluxCollector* DamsaFluxCollector::fInstance = nullptr;
+DamsaAnalysis* DamsaAnalysis::fInstance = nullptr;
+G4Mutex DamsaAnalysis::fMutex;
+
+DamsaFluxCollector* DamsaFluxCollector::fInstance = nullptr;
+G4Mutex DamsaFluxCollector::fMutex;
 
 DamsaAnalysis* DamsaAnalysis::Instance()
 {
@@ -40,15 +43,17 @@ G4bool DamsaAnalysis::WasTrackRecorded(G4int trackID, const G4String& location)
 
 void DamsaAnalysis::ResetEventTracking()
 {
+    G4AutoLock lock(&fMutex);
     for (auto& pair : fLocations) {
         pair.second.ResetEventTracking();
     }
 }
 
 void DamsaAnalysis::RecordParticle(const G4String& particleName, G4double energy,
-                                   const G4String& location, G4double angle, 
+                                   const G4String& location, G4double angle,
                                    G4int trackID, G4bool isPrimary)
 {
+    G4AutoLock lock(&fMutex);
     auto it = fLocations.find(location);
     if (it != fLocations.end()) {
         it->second.RecordParticle(particleName, energy, angle, trackID, isPrimary);
@@ -277,19 +282,6 @@ void DamsaAnalysis::Reset()
 {
     for (auto& pair : fLocations) {
         pair.second.Reset();
-    }
-}
-
-void DamsaAnalysis::Merge()
-{
-    DamsaAnalysis* threadLocal = DamsaAnalysis::Instance();
-    if (threadLocal == this) return;
-    
-    for (auto& locPair : fLocations) {
-        const auto& threadLoc = threadLocal->fLocations.find(locPair.first);
-        if (threadLoc != threadLocal->fLocations.end()) {
-            locPair.second.MergeFrom(threadLoc->second);
-        }
     }
 }
 

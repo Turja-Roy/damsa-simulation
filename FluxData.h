@@ -3,6 +3,8 @@
 
 #include "globals.hh"
 #include "G4SystemOfUnits.hh"
+#include "G4Threading.hh"
+#include "G4AutoLock.hh"
 #include <vector>
 #include <fstream>
 #include <iomanip>
@@ -86,9 +88,6 @@ public:
     // Clear data between runs
     void Reset();
     
-    // MT support: merge thread-local data into master instance
-    void Merge();
-    
     // Access raw data (for ROOT ntuple filling)
     const std::vector<FluxParticle>& GetPhotons() const { return fPhotons; }
     const std::vector<FluxParticle>& GetBremsPhotons() const { return fBremsPhotons; }
@@ -98,8 +97,9 @@ public:
 private:
     DamsaFluxCollector();
     ~DamsaFluxCollector();
-    static G4ThreadLocal DamsaFluxCollector* fInstance;
-    
+    static DamsaFluxCollector* fInstance;
+    static G4Mutex fMutex;
+
     std::vector<FluxParticle> fPhotons;        // Photons at target exit
     std::vector<FluxParticle> fBremsPhotons;   // Bremsstrahlung photons inside target (for alplib signal)
     std::vector<FluxParticle> fAllParticles;   // All particles (for background)
@@ -137,6 +137,7 @@ inline void DamsaFluxCollector::RecordPhoton(G4double energy, G4double time,
     p.pdgCode = 22;  // Photon PDG code
     p.trackID = trackID;
     p.eventID = eventID;
+    G4AutoLock lock(&fMutex);
     fPhotons.push_back(p);
 }
 
@@ -158,6 +159,7 @@ inline void DamsaFluxCollector::RecordParticle(G4int pdgCode, G4double energy, G
     p.weight = weight;
     p.trackID = trackID;
     p.eventID = eventID;
+    G4AutoLock lock(&fMutex);
     fAllParticles.push_back(p);
 }
 
@@ -179,6 +181,7 @@ inline void DamsaFluxCollector::RecordCaloFaceParticle(G4int pdgCode, G4double e
     p.weight = weight;
     p.trackID = trackID;
     p.eventID = eventID;
+    G4AutoLock lock(&fMutex);
     fCaloFaceParticles.push_back(p);
 }
 
@@ -190,16 +193,6 @@ inline void DamsaFluxCollector::Reset()
     fCaloFaceParticles.clear();
 }
 
-inline void DamsaFluxCollector::Merge()
-{
-    DamsaFluxCollector* threadLocal = DamsaFluxCollector::Instance();
-    if (threadLocal == this) return;
-    
-    fPhotons.insert(fPhotons.end(), threadLocal->fPhotons.begin(), threadLocal->fPhotons.end());
-    fBremsPhotons.insert(fBremsPhotons.end(), threadLocal->fBremsPhotons.begin(), threadLocal->fBremsPhotons.end());
-    fAllParticles.insert(fAllParticles.end(), threadLocal->fAllParticles.begin(), threadLocal->fAllParticles.end());
-    fCaloFaceParticles.insert(fCaloFaceParticles.end(), threadLocal->fCaloFaceParticles.begin(), threadLocal->fCaloFaceParticles.end());
-}
 
 inline G4int DamsaFluxCollector::GetNeutronCount() const
 {
@@ -440,6 +433,7 @@ inline void DamsaFluxCollector::RecordBremsPhoton(G4double energy, G4double time
     p.pdgCode = 22;  // Photon PDG code
     p.trackID = trackID;
     p.eventID = eventID;
+    G4AutoLock lock(&fMutex);
     fBremsPhotons.push_back(p);
 }
 
