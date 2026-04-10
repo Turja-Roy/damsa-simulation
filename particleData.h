@@ -23,6 +23,12 @@ struct ParticleData {
         energies.clear();
         angles.clear();
     }
+    
+    void MergeFrom(const ParticleData& other) {
+        count += other.count;
+        energies.insert(energies.end(), other.energies.begin(), other.energies.end());
+        angles.insert(angles.end(), other.angles.begin(), other.angles.end());
+    }
 };
 
 class ParticleDataMap {
@@ -63,6 +69,12 @@ public:
     
     std::map<G4String, ParticleData>& GetMap() { return fData; }
     const std::map<G4String, ParticleData>& GetMap() const { return fData; }
+    
+    void MergeFrom(const ParticleDataMap& other) {
+        for (const auto& pair : other.fData) {
+            fData[pair.first].MergeFrom(pair.second);
+        }
+    }
     
 private:
     std::map<G4String, ParticleData> fData;

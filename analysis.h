@@ -35,6 +35,9 @@ public:
     void Reset();
     void ResetEventTracking();
     
+    // MT support: merge thread-local data into master instance
+    void Merge();
+    
     G4int GetTargetExitPhotons() const;
     G4int GetTargetExitNeutrons() const;
     G4int GetCaloEntrancePhotons() const;
@@ -51,7 +54,7 @@ public:
 private:
     DamsaAnalysis();
     ~DamsaAnalysis();
-    static DamsaAnalysis* fInstance;
+    static G4ThreadLocal DamsaAnalysis* fInstance;
     
     std::map<G4String, DamsaLocationData> fLocations;
     std::string fConfigPrefix;  // Prefix for config-specific filenames

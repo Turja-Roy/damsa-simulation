@@ -86,6 +86,9 @@ public:
     // Clear data between runs
     void Reset();
     
+    // MT support: merge thread-local data into master instance
+    void Merge();
+    
     // Access raw data (for ROOT ntuple filling)
     const std::vector<FluxParticle>& GetPhotons() const { return fPhotons; }
     const std::vector<FluxParticle>& GetBremsPhotons() const { return fBremsPhotons; }
@@ -95,7 +98,7 @@ public:
 private:
     DamsaFluxCollector();
     ~DamsaFluxCollector();
-    static DamsaFluxCollector* fInstance;
+    static G4ThreadLocal DamsaFluxCollector* fInstance;
     
     std::vector<FluxParticle> fPhotons;        // Photons at target exit
     std::vector<FluxParticle> fBremsPhotons;   // Bremsstrahlung photons inside target (for alplib signal)
@@ -104,8 +107,6 @@ private:
 };
 
 // Implementation
-
-inline DamsaFluxCollector* DamsaFluxCollector::fInstance = nullptr;
 
 inline DamsaFluxCollector* DamsaFluxCollector::Instance()
 {
@@ -187,6 +188,17 @@ inline void DamsaFluxCollector::Reset()
     fBremsPhotons.clear();
     fAllParticles.clear();
     fCaloFaceParticles.clear();
+}
+
+inline void DamsaFluxCollector::Merge()
+{
+    DamsaFluxCollector* threadLocal = DamsaFluxCollector::Instance();
+    if (threadLocal == this) return;
+    
+    fPhotons.insert(fPhotons.end(), threadLocal->fPhotons.begin(), threadLocal->fPhotons.end());
+    fBremsPhotons.insert(fBremsPhotons.end(), threadLocal->fBremsPhotons.begin(), threadLocal->fBremsPhotons.end());
+    fAllParticles.insert(fAllParticles.end(), threadLocal->fAllParticles.begin(), threadLocal->fAllParticles.end());
+    fCaloFaceParticles.insert(fCaloFaceParticles.end(), threadLocal->fCaloFaceParticles.begin(), threadLocal->fCaloFaceParticles.end());
 }
 
 inline G4int DamsaFluxCollector::GetNeutronCount() const

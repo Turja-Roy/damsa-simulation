@@ -23,6 +23,10 @@ void DamsaRunAction::BeginOfRunAction(const G4Run*) {
 }
 
 void DamsaRunAction::EndOfRunAction(const G4Run* run) {
+    // Merge thread-local data from worker threads into master instance
+    DamsaAnalysis::Instance()->Merge();
+    DamsaFluxCollector::Instance()->Merge();
+    
     const std::string& prefix = DamsaConfig::gOutputPrefix;
     const bool isALPInject = (DamsaConfig::gRunMode == DamsaConfig::RunMode::ALPInject);
 

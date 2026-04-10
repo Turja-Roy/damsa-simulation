@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
 
 project(Damsa)
 
-find_package(Geant4 REQUIRED ui_all vis_all)
+find_package(Geant4 REQUIRED ui_all vis_all multithread)
 
 include(${Geant4_USE_FILE})
 
