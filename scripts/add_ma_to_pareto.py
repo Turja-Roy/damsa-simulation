@@ -147,7 +147,7 @@ def geometric_acceptance_vs_gap(events, gaps_cm,
     for i, gap_cm in enumerate(gaps_cm):
         u = rng.random(len(events))
         z_decay = -L_decay * np.log(np.clip(1.0 - u, 1e-30, None))
-        in_gap = z_decay < gap_cm
+        in_gap = (z_decay > 0) & (z_decay < gap_cm)
         magnet_cm = MAGNET_LENGTH_MM / 10.0
         dist_to_calo = (gap_cm + magnet_cm) - z_decay
         theta_rad = np.radians(theta_deg)
@@ -270,12 +270,15 @@ def main():
 
         for i, gap_cm in enumerate(gaps_cm):
             bkg = df[(df['ma_MeV'] == existing_mas[0]) & (df['gap_cm'] == gap_cm)]['bkg_exposure'].values[0]
+            acc_val = acc_frac[i]
+            sep_eff = sep_frac[i] / acc_val if acc_val > 0 else 0.0
             new_rows.append({
                 'ma_MeV': ma,
                 'gap_cm': gap_cm,
                 'bkg_exposure': bkg,
-                'accepted_fraction': acc_frac[i],
+                'accepted_fraction': acc_val,
                 'separable_fraction': sep_frac[i],
+                'sep_efficiency': sep_eff,
                 'n_alp_events': n_total,
             })
 

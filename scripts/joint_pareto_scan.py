@@ -112,7 +112,7 @@ def propagate_background_grid(particles_df: pd.DataFrame,
 def geometric_acceptance_grid(events: list,
                                vdc_values_cm: np.ndarray,
                                calo_values_cm: np.ndarray,
-                               angle_cut_deg: float = 20.0,
+                               angle_cut_deg: float = 10.0,
                                energy_cut_MeV: float = 100.0,
                                rng: np.random.Generator = None
                                ) -> tuple:
@@ -152,7 +152,7 @@ def geometric_acceptance_grid(events: list,
     for iv, vdc_cm in enumerate(vdc_values_cm):
         u       = rng.random(len(events))
         z_decay = -L_decay * np.log(np.clip(1.0 - u, 1e-30, None))
-        in_gap  = z_decay < vdc_cm
+        in_gap  = (z_decay > 0) & (z_decay < vdc_cm)
         dist_to_calo = (vdc_cm + magnet_cm) - z_decay   # cm; positive when in_gap
         theta_rad    = np.radians(theta_deg)
         half_sep_cm  = theta_rad * dist_to_calo / 2.0
@@ -210,6 +210,7 @@ def plot_heatmaps(grid_df: pd.DataFrame, vdc_values: np.ndarray,
         return
 
     for col, title, cmap in [
+        ('sep_efficiency',   'Separability efficiency',    'viridis'),
         ('separable_fraction', 'Signal separable fraction', 'viridis'),
         ('bkg_exposure',       'Weighted background (log)', 'magma_r'),
         ('fom',                'FoM = sep_frac / √bkg',    'plasma'),
@@ -302,7 +303,7 @@ def main():
     parser.add_argument('--coupling',  type=float, default=-1,
                         help='Coupling in GeV^-1; -1 = auto per mass')
     parser.add_argument('--n-samples', type=int,   default=10000)
-    parser.add_argument('--angle-cut', type=float, default=20.0,
+    parser.add_argument('--angle-cut', type=float, default=10.0,
                         help='Separability opening angle cut [deg]')
     parser.add_argument('--energy-cut',type=float, default=100.0,
                         help='Separability per-photon energy cut [MeV]')
@@ -453,13 +454,16 @@ def main():
                 bkg = bkg_grid[iv, ic]
                 sep = sep_grid[iv, ic]
                 fom = sep / np.sqrt(bkg + 1e-30)
+                acc_val = acc_grid[iv, ic]
+                sep_eff = sep / acc_val if acc_val > 0 else 0.0
                 all_rows.append({
                     'ma_MeV':             ma,
                     'vdc_cm':             vdc_cm,
                     'calo_cm':            calo_cm,
                     'bkg_exposure':       bkg,
-                    'accepted_fraction':  acc_grid[iv, ic],
+                    'accepted_fraction':  acc_val,
                     'separable_fraction': sep,
+                    'sep_efficiency':     sep_eff,
                     'n_alp_events':       n_total,
                     'fom':                fom,
                 })

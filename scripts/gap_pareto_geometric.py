@@ -502,7 +502,8 @@ def calculate_geometric_acceptance(
         'separable_weight': separable_weight,
         'geometric_acceptance': geometric_acceptance,
         'separability_of_accepted': separability_of_accepted,
-        'separable_fraction': separable_fraction
+        'separable_fraction': separable_fraction,
+        'sep_efficiency': separability_of_accepted,
     }
 
 
@@ -644,6 +645,7 @@ def run_gap_pareto_geometric(args):
             'geometric_acceptance': geo_result['geometric_acceptance'],
             'separability_of_accepted': geo_result['separability_of_accepted'],
             'separable_fraction': geo_result['separable_fraction'],
+            'sep_efficiency': geo_result['sep_efficiency'],
             'photons_calo_entrance': sim_results['photons_calo_entrance'],
             'neutrons_calo_entrance': sim_results['neutrons_calo_entrance']
         }

@@ -166,7 +166,7 @@ def plot_pareto_front(pareto_df, plot_dir, title_suffix=""):
                         fontsize=6, color=col)
 
     ax.set_xlabel('Weighted background (30-day exposure)', fontsize=11)
-    ax.set_ylabel('Signal separable fraction', fontsize=11)
+    ax.set_ylabel('Separability efficiency', fontsize=11)
     ax.set_xscale('log')
     ax.set_title(f'VDC × Calo Pareto front — Tz10 baseline{title_suffix}\n'
                  'Labels: V=VDC cm / C=Calo cm', fontsize=10)

@@ -205,7 +205,7 @@ def plot_fom_vs_target(results_df: pd.DataFrame, plot_dir: Path,
 
     for ax_idx, (col, ylabel, title) in enumerate([
         ('fom',                'FoM = sep / √bkg',          'Figure of Merit'),
-        ('separable_fraction', 'Separable signal fraction',  'Signal separability'),
+        ('sep_efficiency',     'Separability efficiency',   'Signal separability'),
         ('bkg_exposure',       'Weighted background',        'Background exposure'),
     ]):
         ax = axes[ax_idx]
@@ -489,6 +489,7 @@ def main():
                         'bkg_exposure':       bkg,
                         'accepted_fraction':  acc_grid[iv, ic],
                         'separable_fraction': sep,
+                        'sep_efficiency':     sep / acc_grid[iv, ic] if acc_grid[iv, ic] > 0 else 0.0,
                         'n_alp_events':       n_total,
                         'fom':                fom,
                     })

@@ -1,4 +1,5 @@
 #include "analysis.h"
+#include "FluxData.h"
 
 TCanvas* CreateOverlayCanvasMap(std::map<G4String, TH1D*>& energyHists,
                                std::map<G4String, TH1D*>& angleHists,
@@ -6,7 +7,8 @@ TCanvas* CreateOverlayCanvasMap(std::map<G4String, TH1D*>& energyHists,
 void WriteEvolutionHistograms(TFile* rootFile, std::map<G4String, DamsaLocationData>& locations,
                               const std::string& configPrefix);
 
-DamsaAnalysis* DamsaAnalysis::fInstance = nullptr;
+G4ThreadLocal DamsaAnalysis* DamsaAnalysis::fInstance = nullptr;
+G4ThreadLocal DamsaFluxCollector* DamsaFluxCollector::fInstance = nullptr;
 
 DamsaAnalysis* DamsaAnalysis::Instance()
 {
@@ -275,6 +277,19 @@ void DamsaAnalysis::Reset()
 {
     for (auto& pair : fLocations) {
         pair.second.Reset();
+    }
+}
+
+void DamsaAnalysis::Merge()
+{
+    DamsaAnalysis* threadLocal = DamsaAnalysis::Instance();
+    if (threadLocal == this) return;
+    
+    for (auto& locPair : fLocations) {
+        const auto& threadLoc = threadLocal->fLocations.find(locPair.first);
+        if (threadLoc != threadLocal->fLocations.end()) {
+            locPair.second.MergeFrom(threadLoc->second);
+        }
     }
 }
 

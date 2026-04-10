@@ -36,6 +36,9 @@ public:
     void PrintSummary(const G4String& locationName) const;
     void WriteToFile(std::ofstream& outFile, const G4String& locationName) const;
     
+    // MT support: merge data from another location
+    void MergeFrom(const DamsaLocationData& other);
+    
 private:
     ParticleDataMap fParticles;
     std::set<G4int> fTrackIDs;
@@ -207,6 +210,20 @@ inline void DamsaLocationData::WriteToFile(std::ofstream& outFile, const G4Strin
     
     outFile << "Total Energy: " << std::fixed << std::setprecision(6) 
             << fTotalEnergy/GeV << " GeV" << std::endl << std::endl;
+}
+
+inline void DamsaLocationData::MergeFrom(const DamsaLocationData& other)
+{
+    fTotalEnergy += other.fTotalEnergy;
+    fPrimaryEnergy += other.fPrimaryEnergy;
+    
+    for (const auto& pair : other.fParticles.GetMap()) {
+        fParticles.GetParticle(pair.first).MergeFrom(pair.second);
+    }
+    
+    for (G4int tid : other.fTrackIDs) {
+        fTrackIDs.insert(tid);
+    }
 }
 
 #endif

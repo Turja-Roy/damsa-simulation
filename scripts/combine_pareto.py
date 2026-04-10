@@ -183,15 +183,15 @@ def main():
             ax.bar(bt['target_cm'].astype(str), bt['separable_fraction'],
                    color=col, alpha=0.8, edgecolor='black')
             ax.set_xlabel('Target length [cm]', fontsize=9)
-            ax.set_ylabel('sep. fraction', fontsize=9)
+            ax.set_ylabel('sep. efficiency', fontsize=9)
             ax.set_title(f'ma={ma:.0f} MeV', fontsize=9)
             ax.tick_params(axis='x', rotation=45)
             ax.grid(True, alpha=0.3, axis='y')
 
-        fig.suptitle('Best separable fraction vs target length (per mass)',
+        fig.suptitle('Best separability efficiency vs target length (per mass)',
                      fontsize=10)
         plt.tight_layout()
-        out2 = plot_dir / 'sep_frac_vs_target.png'
+        out2 = plot_dir / 'sep_eff_vs_target.png'
         plt.savefig(out2, dpi=130)
         plt.close()
         print(f"Saved: {out2}")
