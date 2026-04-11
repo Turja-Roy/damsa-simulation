@@ -23,6 +23,9 @@ output/
 plots/
 */plots/
 
+# Virtual environments
+.venv/
+
 # Temporary files
 *.tmp
 *.bak
