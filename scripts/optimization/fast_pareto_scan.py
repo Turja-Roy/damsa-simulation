@@ -150,7 +150,7 @@ def run_alplib_once(flux_file: str, n_primaries: int, beam_current_uA: float,
     """
     Generate ALP decay events once with alplib. Returns list of event dicts.
     """
-    from scripts.alplib_signal_plots import load_flux_for_alplib
+    from scripts.alplib.alplib_signal_plots import load_flux_for_alplib
     import alplib.fluxes as af
     import alplib.materials as am
     import alplib.generators as ag

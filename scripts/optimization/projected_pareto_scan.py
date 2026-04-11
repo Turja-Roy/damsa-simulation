@@ -212,7 +212,7 @@ def run_alplib_once(flux_file: str, n_primaries: int, beam_current_uA: float,
                     exposure_days: float, n_samples: int,
                     nominal_gap_cm: float = 47.0):
     """Generate ALP decay events with alplib."""
-    from scripts.alplib_signal_plots import load_flux_for_alplib
+    from scripts.alplib.alplib_signal_plots import load_flux_for_alplib
     import alplib.fluxes as af
     import alplib.materials as am
     import alplib.generators as ag

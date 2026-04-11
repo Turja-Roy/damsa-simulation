@@ -347,8 +347,8 @@ def main():
     print(f"  Background range: {bkg_grid.min():.3e} – {bkg_grid.max():.3e}")
 
     # ── Load flux (brems flux CSV, headerless, already rate-scaled) ──────────
-    from scripts.alp_signal_pipeline import load_geant4_brems_flux
-    from scripts.fast_pareto_scan import auto_coupling
+    from scripts.pipeline.alp_signal_pipeline import load_geant4_brems_flux
+    from scripts.optimization.fast_pareto_scan import auto_coupling
     import alplib.fluxes as af
     import alplib.materials as am
     import alplib.generators as ag

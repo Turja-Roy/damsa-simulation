@@ -11,14 +11,17 @@ __pycache__/
 .eggs/
 *.egg
 
-# Optimization outputs
-output/
-
 # alplib (external dependency)
 alplib/
 
-# ROOT output
+# ROOT outputs
 *.root
+
+# Optimization outputs
+output/
+*/output/
+plots/
+*/plots/
 
 # Temporary files
 *.tmp

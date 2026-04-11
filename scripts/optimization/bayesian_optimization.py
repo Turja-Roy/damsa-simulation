@@ -61,9 +61,14 @@ except ImportError:
     warnings.warn("BoTorch not installed. Install with: pip install botorch")
 
 # Local imports
-from geant4_runner import Geant4Runner, MockGeant4Runner, SimulationResult
-from objectives import ObjectiveFunctions, ObjectiveValues, FigureOfMerit
-from optimization_problem import OptimizationConfig
+from scripts.runner.geant4_runner import Geant4Runner, MockGeant4Runner, SimulationResult
+from scripts.runner.objectives import ObjectiveFunctions, ObjectiveValues, FigureOfMerit
+
+# TODO: Fix or remove when optimization_problem is needed
+try:
+    from optimization_problem import OptimizationConfig
+except ImportError:
+    OptimizationConfig = None
 
 
 @dataclass

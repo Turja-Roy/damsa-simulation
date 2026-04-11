@@ -897,10 +897,13 @@ def generate_root_summary_plots(
     """
     # Import ROOT plotting module
     try:
-        from root_config_plots import ConfigurationPlotter, ConfigurationComparator
+        from scripts.visualization.root_config_plots import ConfigurationPlotter, ConfigurationComparator
     except ImportError:
-        print("  root_config_plots module not available")
-        return
+        try:
+            from root_config_plots import ConfigurationPlotter, ConfigurationComparator
+        except ImportError:
+            print("  root_config_plots module not available")
+            return
     
     results_dir = Path(results_dir)
     output_dir = Path(output_dir)
@@ -1030,10 +1033,13 @@ def generate_alp_signal_plots(
     """
     # Import ALP plotting module
     try:
-        from alplib_signal_plots import ALPSignalVisualizer
+        from scripts.alplib.alplib_signal_plots import ALPSignalVisualizer
     except ImportError:
-        print("  alplib_signal_plots module not available")
-        return
+        try:
+            from alplib_signal_plots import ALPSignalVisualizer
+        except ImportError:
+            print("  alplib_signal_plots module not available")
+            return
     
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

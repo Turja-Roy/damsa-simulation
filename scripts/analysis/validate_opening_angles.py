@@ -48,7 +48,7 @@ try:
 except ImportError:
     PLOT = False
 
-from alp_signal_pipeline import (
+from scripts.pipeline.alp_signal_pipeline import (
     bethe_heitler_spectrum,
     load_geant4_brems_flux,
     run_alplib,
@@ -56,6 +56,7 @@ from alp_signal_pipeline import (
 )
 
 MASS_GRID_MEV = np.array([10, 20, 50, 100, 200, 500])
+MASS_GRID_PLOT = np.array([10, 20, 50, 100, 200])  # Masses for overlay plot
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -121,6 +122,169 @@ def expected_mean_theta_per_alp(Ea, ma, n_integration=200):
     cos_theta = np.clip(cos_theta, -1.0, 1.0)
     theta = np.arccos(cos_theta)
     return float(np.trapezoid(theta, u) / 2.0)  # (1/2) × integral
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Generate opening angle distribution for all masses
+# ──────────────────────────────────────────────────────────────────────────────
+
+def generate_opening_angle_distributions(photon_flux, n_samples=400, n_angle_bins=60):
+    """
+    Generate weighted opening angle distributions for multiple ALP masses.
+    
+    For each mass in MASS_GRID_PLOT, runs alplib MC decay and calculates
+    opening angles from the photon pair 4-vectors. Returns histograms
+    of weighted events vs opening angle (degrees).
+    
+    Parameters
+    ----------
+    photon_flux : np.ndarray
+        2D array [energy, rate] for photon flux
+    n_samples : int
+        Number of ALP samples per mass
+    n_angle_bins : int
+        Number of bins for angle histogram
+        
+    Returns
+    -------
+    dict
+        {ma: (angles_deg, weights)} for each mass
+    """
+    results = {}
+    
+    for ma_MeV in MASS_GRID_PLOT:
+        coupling_GeV = pick_safe_coupling(ma_MeV, photon_flux,
+                                         target_decay_length_m=5.0)
+        
+        flux_obj, gen = run_alplib(photon_flux, ma_MeV, coupling_GeV,
+                                   n_samples=20)
+        
+        if len(flux_obj.axion_energy) == 0:
+            print(f"  [ma={ma_MeV}] No ALPs generated, skipping")
+            continue
+        
+        p41_list, p42_list, mc_wgts = gen.simulate_decay_4vectors(
+            days_exposure=EXPOSURE_DAYS, n_samples=n_samples)
+        
+        mc_wgts = np.asarray(mc_wgts)
+        if mc_wgts.sum() <= 0 or len(p41_list) == 0:
+            print(f"  [ma={ma_MeV}] No decays generated, skipping")
+            continue
+        
+        # Calculate opening angles from photon pair 4-vectors
+        angles = np.zeros(len(p41_list))
+        for i, (p1, p2) in enumerate(zip(p41_list, p42_list)):
+            v1 = np.array([p1.p1, p1.p2, p1.p3])
+            v2 = np.array([p2.p1, p2.p2, p2.p3])
+            m1 = np.linalg.norm(v1)
+            m2 = np.linalg.norm(v2)
+            if m1 > 1e-12 and m2 > 1e-12:
+                cos_t = np.dot(v1, v2) / (m1 * m2)
+                angles[i] = np.arccos(np.clip(cos_t, -1.0, 1.0))
+        
+        # Convert to degrees and filter valid angles
+        angles_deg = np.degrees(angles)
+        valid = (angles_deg > 0) & (angles_deg < 90)
+        
+        if valid.sum() == 0:
+            print(f"  [ma={ma_MeV}] No valid angles, skipping")
+            continue
+        
+        results[ma_MeV] = (angles_deg[valid], mc_wgts[valid])
+        print(f"  [ma={ma_MeV}] {valid.sum()} decays, mean angle = {angles_deg[valid].mean():.2f}°")
+    
+    return results
+
+
+def plot_opening_angle_overlay(distributions, output_path="plots/opening_angles_overlay.png"):
+    """
+    Create publication-quality overlay plot of opening angle distributions
+    for multiple ALP masses.
+    
+    Parameters
+    ----------
+    distributions : dict
+        {ma: (angles_deg, weights)} for each mass
+    output_path : str
+        Path to save PNG output
+    """
+    if not PLOT:
+        return
+    
+    Path("plots").mkdir(exist_ok=True)
+    
+    fig, ax = plt.subplots(figsize=(8, 6))
+    
+    # Color scheme for different masses
+    colors = {
+        10: '#e41a1c',   # red
+        20: '#377eb8',   # blue
+        50: '#4daf4a',   # green
+        100: '#984ea3', # purple
+        200: '#ff7f00', # orange
+    }
+    
+    max_counts = 0
+    
+    for ma_MeV in MASS_GRID_PLOT:
+        if ma_MeV not in distributions:
+            continue
+        
+        angles, weights = distributions[ma_MeV]
+        
+        if len(angles) == 0:
+            continue
+        
+        # Create histogram with proper weighting
+        bins = np.linspace(0, 90, 61)
+        counts, bin_edges = np.histogram(angles, bins=bins, weights=weights)
+        
+        # Normalize to get events per bin (per day)
+        bin_width = bins[1] - bins[0]
+        counts_norm = counts / bin_width
+        
+        bin_centers = 0.5 * (bins[:-1] + bins[1:])
+        
+        # Plot as step histogram
+        color = colors.get(ma_MeV, 'gray')
+        ax.plot(bin_centers, counts_norm, '-', color=color, linewidth=2,
+               label=f'$m_a$ = {ma_MeV} MeV')
+        ax.fill_between(bin_centers, counts_norm, alpha=0.15, color=color)
+        
+        max_counts = max(max_counts, counts_norm.max())
+    
+    # Styling
+    ax.set_xlabel('Opening angle θ_{open} [degrees]', fontsize=12)
+    ax.set_ylabel('Weighted events per degree', fontsize=12)
+    ax.set_title('ALP → γγ Decay Opening Angle Distribution\n'
+                 '(All decays, weighted by production × decay)', fontsize=13)
+    ax.set_xlim(0, 60)
+    ax.set_ylim(1e-3, max_counts * 2 if max_counts > 0 else 10)
+    ax.set_yscale('log')
+    ax.grid(True, which='both', alpha=0.3)
+    ax.legend(loc='upper right', fontsize=10)
+    
+    # Add ultra-relativistic reference lines
+    for ma_MeV in [10, 20, 50, 100, 200]:
+        # Reference: θ ≈ 2*m_a/E_ref, taking E_ref ~ 500 MeV typical
+        theta_ref = 2 * ma_MeV / 500 * 180 / np.pi  # degrees
+        if theta_ref < 60:
+            ax.axvline(x=theta_ref, color=colors.get(ma_MeV, 'gray'),
+                      linestyle=':', alpha=0.4, linewidth=1)
+    
+    # Add text annotation
+    ax.text(0.02, 0.98, f'Beam: {BEAM_ENERGY_MEV:.0f} GeV e⁻\n'
+                         f'Exposure: {EXPOSURE_DAYS:.0f} days',
+            transform=ax.transAxes, fontsize=9,
+            verticalalignment='top', fontfamily='monospace',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+    
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=200, bbox_inches='tight')
+    fig.savefig(output_path.replace('.png', '.pdf'), bbox_inches='tight')
+    plt.close(fig)
+    
+    print(f"\nOpening angle overlay → {output_path}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -272,6 +436,10 @@ def main():
     parser.add_argument("--nprimaries", type=int, default=10000)
     parser.add_argument("--analytic", action="store_true",
                         help="Force analytic Bethe-Heitler spectrum")
+    parser.add_argument("--overlay", action="store_true",
+                        help="Generate opening angle overlay plot for masses 10,20,50,100,200 MeV")
+    parser.add_argument("--nsamples", type=int, default=400,
+                        help="Number of ALP decay samples per mass (default: 400)")
     args = parser.parse_args()
 
     if args.flux and not args.analytic:
@@ -359,6 +527,14 @@ def main():
         fig.savefig("plots/opening_angle_validation.png", dpi=150)
         plt.close(fig)
         print("\nValidation plot → plots/opening_angle_validation.pdf")
+
+    # ── Opening angle overlay plot for masses 10, 20, 50, 100, 200 MeV ────────
+    if args.overlay:
+        print("\n--- Generating opening angle overlay plot ---")
+        distributions = generate_opening_angle_distributions(
+            photon_flux, n_samples=args.nsamples)
+        plot_opening_angle_overlay(distributions,
+                                   "plots/opening_angles_overlay.png")
 
     print("\n=== Validation complete ===")
 

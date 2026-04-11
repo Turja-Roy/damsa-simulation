@@ -41,8 +41,8 @@ try:
 except ImportError:
     PLOT = False
 
-from scripts.alp_signal_pipeline import load_geant4_brems_flux
-from scripts.fast_pareto_scan import auto_coupling
+from scripts.pipeline.alp_signal_pipeline import load_geant4_brems_flux
+from scripts.optimization.fast_pareto_scan import auto_coupling
 import alplib.fluxes as af
 import alplib.materials as am
 import alplib.generators as ag
@@ -311,7 +311,7 @@ def compute_global_3d_pareto(proj_df: pd.DataFrame) -> pd.DataFrame:
 
     Returns a filtered DataFrame (subset of proj_df) flagged as global Pareto.
     """
-    from scripts.joint_pareto_scan import is_pareto_optimal
+    from scripts.optimization.joint_pareto_scan import is_pareto_optimal
 
     pareto_rows = []
     for ma in sorted(proj_df['ma_MeV'].unique()):

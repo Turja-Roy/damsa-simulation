@@ -26,19 +26,31 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 
 # Local imports
-from geant4_runner import Geant4Runner, MockGeant4Runner
-from objectives import ObjectiveFunctions, ObjectiveValues, FigureOfMerit
-from optimization_problem import (
-    OptimizationConfig, 
-    DAMSAOptimizationProblem,
-    run_nsga2_optimization,
-    run_nsga3_optimization,
-    save_optimization_results
-)
+from scripts.runner.geant4_runner import Geant4Runner, MockGeant4Runner
+from scripts.runner.objectives import ObjectiveFunctions, ObjectiveValues, FigureOfMerit
+
+# Conditional imports - optimization_problem was removed
+try:
+    from optimization_problem import (
+        OptimizationConfig, 
+        DAMSAOptimizationProblem,
+        run_nsga2_optimization,
+        run_nsga3_optimization,
+        save_optimization_results,
+        PYMOO_AVAILABLE
+    )
+    OptimizationConfig = OptimizationConfig
+except ImportError:
+    OptimizationConfig = None
+    DAMSAOptimizationProblem = None
+    run_nsga2_optimization = None
+    run_nsga3_optimization = None
+    save_optimization_results = None
+    PYMOO_AVAILABLE = False
 
 # Conditional imports
 try:
-    from bayesian_optimization import (
+    from scripts.optimization.bayesian_optimization import (
         BOConfig,
         MultiObjectiveBayesianOptimizer,
         run_bayesian_optimization,
@@ -48,11 +60,6 @@ try:
 except ImportError:
     BOTORCH_AVAILABLE = False
     BOConfig = None  # Placeholder when BoTorch unavailable
-
-try:
-    from optimization_problem import PYMOO_AVAILABLE
-except ImportError:
-    PYMOO_AVAILABLE = False
 
 
 def create_output_directory(base_dir: str = "optimization_results") -> Path:

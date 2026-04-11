@@ -47,7 +47,7 @@ try:
 except ImportError:
     PLOT = False
 
-from scripts.joint_pareto_scan import (
+from scripts.optimization.joint_pareto_scan import (
     propagate_background_grid,
     geometric_acceptance_grid,
     is_pareto_optimal,
@@ -55,8 +55,8 @@ from scripts.joint_pareto_scan import (
     CHARGE_C,
     SECONDS_PER_DAY,
 )
-from scripts.alp_signal_pipeline import load_geant4_brems_flux
-from scripts.fast_pareto_scan import auto_coupling
+from scripts.pipeline.alp_signal_pipeline import load_geant4_brems_flux
+from scripts.optimization.fast_pareto_scan import auto_coupling
 import alplib.fluxes as af
 import alplib.materials as am
 import alplib.generators as ag

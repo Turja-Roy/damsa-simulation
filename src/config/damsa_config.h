@@ -7,7 +7,7 @@
 // Two run modes are supported:
 //
 //   ElectronBeam : standard 8 GeV e- on tungsten dump (used by damsa.cpp,
-//                  damsa_gap_scan.cpp, damsa_opt.cpp).  Brems-flux CSVs are
+//                  damsa_opt.cpp).  Brems-flux CSVs are
 //                  written for downstream alplib processing.
 //
 //   ALPInject    : a-> gamma gamma decay photons are read from a CSV exported

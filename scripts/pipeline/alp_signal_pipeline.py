@@ -480,7 +480,7 @@ def compute_sensitivity(photon_flux, mass_grid=MASS_GRID_MEV,
 # Plotting helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
-def plot_opening_angles(results, out_dir="plots"):
+def plot_opening_angles(results, out_dir="plots", overlay_masses=None):
     """
     Plot opening angle distribution for each mass — two panels:
       • Left: all decays (no transverse acceptance cut). Spans 0–180° because
@@ -489,9 +489,18 @@ def plot_opening_angles(results, out_dir="plots"):
         straight-line cut from `transverse_acceptance_mask`). This is the
         spectrum that the actual detector sees and should be narrow / forward.
     results: list of dicts from compute_opening_angles().
+    overlay_masses: array of masses to include in plot (None = all).
     """
     if not PLOT:
         return
+    
+    # Filter to requested masses if specified
+    if overlay_masses is not None:
+        results = [r for r in results if r['ma'] in overlay_masses]
+        if not results:
+            print(f"[overlay] No matching results for masses {overlay_masses}")
+            return
+    
     Path(out_dir).mkdir(parents=True, exist_ok=True)
 
     fig, (ax_all, ax_in) = plt.subplots(1, 2, figsize=(13, 5))
@@ -592,6 +601,9 @@ def main():
     parser.add_argument("--vdc-length", type=float, default=None, metavar="METERS",
                         help="Vacuum decay chamber length in metres (default: %.2f m = %.0f cm). "
                              "Updates DET_DIST_M = TARGET_HALF + VDC + MAGNET." % (VDC_M, VDC_M*100))
+    parser.add_argument("--overlay-mass", type=str, default=None,
+                        help="Comma-separated masses to include in overlay plot "
+                             "(e.g., '10,20,50,100,200')")
     args = parser.parse_args()
 
     # ── Apply VDC length override ─────────────────────────────────────────────
@@ -612,6 +624,12 @@ def main():
               f"total rate: {photon_flux[:,1].sum():.3e} photons/s")
 
     mass_grid = np.array([args.mass]) if args.mass else MASS_GRID_MEV
+    
+    # Parse overlay masses for plotting
+    overlay_masses = None
+    if args.overlay_mass:
+        overlay_masses = np.array([float(m) for m in args.overlay_mass.split(',')])
+        print(f"[overlay] Plotting masses: {args.overlay_mass} MeV")
 
     # ── Opening angle scan ────────────────────────────────────────────────────
     auto_g = (args.coupling is None) or args.auto_coupling
@@ -637,7 +655,8 @@ def main():
               f" {r['mean_in_mrad']:13.2f} {r['accept_frac']:10.3e}")
 
     if PLOT:
-        plot_opening_angles(angle_results, out_dir=str(Path(args.outdir).parent / "plots"))
+        plot_opening_angles(angle_results, out_dir=str(Path(args.outdir).parent / "plots"),
+                          overlay_masses=overlay_masses)
 
     # ── Decay 4-vector export ─────────────────────────────────────────────────
     if not args.no_4vec:
