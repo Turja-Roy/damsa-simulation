@@ -43,4 +43,19 @@ add_executable(damsa_alp_inject damsa_alp_inject.cpp ${sources} ${headers})
 set_target_properties(damsa_alp_inject PROPERTIES COMPILE_FLAGS "${ROOT_CXX_FLAGS}")
 target_link_libraries(damsa_alp_inject ${Geant4_LIBRARIES} ${ROOT_LIBRARIES})
 
-add_custom_target(Damsa DEPENDS damsa damsa_opt damsa_alp_inject)
+# ── Standalone tools (ROOT only, no Geant4) ──────────────────────
+add_executable(analyze_gap_scan analyze_gap_scan.cpp)
+set_target_properties(analyze_gap_scan PROPERTIES COMPILE_FLAGS "${ROOT_CXX_FLAGS}")
+target_link_libraries(analyze_gap_scan ${ROOT_LIBRARIES})
+
+add_executable(flux_converter scripts/pipeline/flux_converter.cpp)
+
+add_executable(subsample_alp_csv scripts/analysis/subsample_alp_csv.cpp)
+
+add_executable(snr_separability scripts/analysis/snr_separability.cpp)
+set_target_properties(snr_separability PROPERTIES COMPILE_FLAGS "${ROOT_CXX_FLAGS}")
+target_link_libraries(snr_separability ${ROOT_LIBRARIES})
+
+add_custom_target(Damsa DEPENDS damsa damsa_opt damsa_alp_inject
+                         analyze_gap_scan flux_converter subsample_alp_csv
+                         snr_separability)
