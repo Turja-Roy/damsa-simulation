@@ -273,7 +273,7 @@ def plot_opening_angle_overlay(distributions, output_path="plots/opening_angles_
                       linestyle=':', alpha=0.4, linewidth=1)
     
     # Add text annotation
-    ax.text(0.02, 0.98, f'Beam: {BEAM_ENERGY_MEV:.0f} GeV e⁻\n'
+    ax.text(0.02, 0.98, f'Beam: {BEAM_ENERGY_MEV/1000.0:.0f} GeV e⁻\n'
                          f'Exposure: {EXPOSURE_DAYS:.0f} days',
             transform=ax.transAxes, fontsize=9,
             verticalalignment='top', fontfamily='monospace',
@@ -326,7 +326,8 @@ def opening_angle_internal_check(photon_flux, ma_MeV):
     theta_kin_mrad = 1000.0 * np.average(theta_kin_per, weights=wgt)
 
     # Ultra-relativistic reference
-    theta_ur_mrad = 1000.0 * np.pi * ma_MeV / mean_Ea
+    # theta_ur_mrad = 1000.0 * np.pi * ma_MeV / mean_Ea
+    theta_ur_mrad = 1000.0 * ma_MeV / mean_Ea
 
     p41_list, p42_list, mc_wgts = gen.simulate_decay_4vectors(
         days_exposure=EXPOSURE_DAYS, n_samples=400)
@@ -513,7 +514,8 @@ def main():
                     's-', color='crimson', label='alplib MC 4-vec decay')
         if mur:
             ax.plot(MASS_GRID_MEV[mur], [theta_ur_vals[i] for i in mur],
-                    '^:', color='gray', alpha=0.7, label='UR limit π mₐ/⟨Eₐ⟩')
+                    '^:', color='gray', alpha=0.7, label='UR limit mₐ/⟨Eₐ⟩')
+                    # '^:', color='gray', alpha=0.7, label='UR limit π mₐ/⟨Eₐ⟩')
 
         ax.set_xlabel("mₐ (MeV)")
         ax.set_ylabel("Mean opening angle (mrad)")

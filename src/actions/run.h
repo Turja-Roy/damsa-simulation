@@ -7,6 +7,7 @@
 
 #include "analysis.h"
 #include "FluxData.h"
+#include "pi0DecayData.h"
 #include "damsa_config.h"
 
 class DamsaRunAction : public G4UserRunAction {
@@ -22,6 +23,7 @@ void DamsaRunAction::BeginOfRunAction(const G4Run*) {
     if (!G4Threading::IsMasterThread()) return;
     // Reset flux collector at start of each run
     DamsaFluxCollector::Instance()->Reset();
+    DamsaPi0Collector::Instance()->Reset();
 }
 
 void DamsaRunAction::EndOfRunAction(const G4Run* run) {
@@ -43,6 +45,11 @@ void DamsaRunAction::EndOfRunAction(const G4Run* run) {
     
     // Write calo-face particle CSV for SNR analysis
     DamsaFluxCollector::Instance()->WriteCaloFaceCSV(prefix + "calo_face_particles.csv");
+
+    // ── pi0 -> gamma+gamma accidental background output ──────────────────────
+    DamsaPi0Collector::Instance()->WriteCSV(prefix + "pi0_decays.csv");
+    DamsaPi0Collector::Instance()->WriteSummaryCSV(prefix + "pi0_summary.csv");
+    WritePi0ROOTHistograms(prefix + "pi0_analysis.root", prefix);
 
     // Brems-flux files only make sense for the electron-beam mode.  In ALP
     // injection mode there are no electrons → these would be empty/zero and

@@ -1,27 +1,47 @@
 #ifndef PHYSICS_H
 #define PHYSICS_H
 
-#include "G4VModularPhysicsList.hh"
-#include "G4EmStandardPhysics_option4.hh"
+// #include "G4VModularPhysicsList.hh"
+// #include "G4EmStandardPhysics_option4.hh"
 #include "G4EmExtraPhysics.hh"
-#include "G4DecayPhysics.hh"
+// #include "G4DecayPhysics.hh"
 #include "G4HadronElasticPhysics.hh"
-#include "G4HadronPhysicsFTFP_BERT.hh"
+// #include "G4HadronPhysicsFTFP_BERT.hh"
+#include "G4EmParameters.hh"
+#include "G4IonPhysics.hh"
 
-class DamsaPhysicsList : public G4VModularPhysicsList {
+
+#include "FTFP_BERT.hh"
+// #include "QBBC.hh"
+class DamsaPhysicsList : public FTFP_BERT {
+// class DamsaPhysicsList : public QBBC {
 public:
-    DamsaPhysicsList();
-    virtual ~DamsaPhysicsList();
+    DamsaPhysicsList() : FTFP_BERT() {
+        G4EmExtraPhysics* emExtra = new G4EmExtraPhysics();
+        emExtra->GammaNuclear(true);       // γ + N → π⁰ + X  (critical for your use case)
+        emExtra->ElectroNuclear(true);     // e⁻ + N → e⁻ + π⁰ + X
+        emExtra->MuonNuclear(true);        // minor contribution, good to have
+        RegisterPhysics(emExtra);
+    }
+    // DamsaPhysicsList() : QBBC() {}
+    virtual ~DamsaPhysicsList() {}
 };
 
-DamsaPhysicsList::DamsaPhysicsList() {
-    RegisterPhysics(new G4EmStandardPhysics_option4());
-    RegisterPhysics(new G4EmExtraPhysics());       // photo-nuclear & electro-nuclear
-    RegisterPhysics(new G4DecayPhysics());
-    RegisterPhysics(new G4HadronElasticPhysics()); // neutron/hadron elastic scattering
-    RegisterPhysics(new G4HadronPhysicsFTFP_BERT());
-}
-
-DamsaPhysicsList::~DamsaPhysicsList() {}
+// class DamsaPhysicsList : public G4VModularPhysicsList {
+// public:
+//     DamsaPhysicsList();
+//     virtual ~DamsaPhysicsList();
+// };
+//
+// DamsaPhysicsList::DamsaPhysicsList() {
+//     // RegisterPhysics(new G4EmStandardPhysics_option4());
+//     // RegisterPhysics(new G4EmExtraPhysics());       // photo-nuclear & electro-nuclear
+//     // RegisterPhysics(new G4DecayPhysics());
+//     // RegisterPhysics(new G4HadronElasticPhysics()); // neutron/hadron elastic scattering
+//     // RegisterPhysics(new G4HadronPhysicsFTFP_BERT());
+//     G4VUserPhysicsList::RegisterPhysics(new FTFP_BERT());
+// }
+//
+// DamsaPhysicsList::~DamsaPhysicsList() {}
 
 #endif

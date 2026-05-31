@@ -1,5 +1,6 @@
 #include "construction_messenger.h"
 #include "construction.h"
+#include "pi0DecayData.h"
 
 #include "G4Material.hh"
 #include "G4Element.hh"
@@ -19,8 +20,8 @@ DamsaDetectorConstruction::DamsaDetectorConstruction()
     fTargetX = 5.0*cm;
     fTargetY = 5.0*cm;
     fTargetZ = 10.0*cm;
-    fTargetExitZ = 0.0*cm;     // Computed dynamically in BuildTarget; do not hardcode
-    fVDCLength = 30.0*cm;  // Default VDC length; scan range is 30–60 cm.
+    fTargetExitZ = 0.0*cm;    // Computed dynamically in BuildTarget; do not hardcode
+    fVDCLength = 30.0*cm;     // Default VDC length; scan range is 30–60 cm.
     fCaloEntranceZ = 0.0*cm;  // Calculated in BuildCalorimeter()
 
     fMessenger = new DamsaDetectorMessenger(this);
@@ -89,6 +90,10 @@ G4VPhysicalVolume* DamsaDetectorConstruction::Construct()
     BuildVacuumChamber(logicWorld, zPos);
     BuildMagnetAndTrackerRegion(logicWorld, zPos);
     BuildCalorimeter(logicWorld, zPos);
+
+    // Publish calo geometry to pi0 collector for geometric acceptance computation.
+    // Called before any events run — no mutex needed.
+    DamsaPi0Collector::Instance()->SetGeometry(fCaloEntranceZ, fCaloSizeXY / 2.0);
 
     return physWorld;
 }

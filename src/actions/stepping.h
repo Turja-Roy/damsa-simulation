@@ -11,6 +11,7 @@
 #include "G4VProcess.hh"
 #include "analysis.h"
 #include "FluxData.h"
+#include "pi0DecayData.h"
 #include "damsa_config.h"
 #include "alp_generator.h"
 
@@ -35,7 +36,7 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
     G4Track* track = step->GetTrack();
     G4String particleName = track->GetDefinition()->GetParticleName();
     G4int trackID = track->GetTrackID();
-    G4int eventID = G4RunManager::GetRunManager()->GetCurrentEvent()->GetEventID();
+    G4int eventID = G4EventManager::GetEventManager()->GetConstCurrentEvent()->GetEventID();
     
     // Get event weight: from ALP generator in ALPInject mode, 1.0 otherwise
     G4double evtWeight = 1.0;
@@ -72,12 +73,65 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
         }
     }
 
+    // ─── pi0 -> gamma+gamma daughter detection ───────────────────────────────
+    // pi0 birth registration is handled by DamsaTrackingAction::PreUserTrackingAction,
+    // which fires before any step — more reliable than step-1 detection here.
+    // At step 1 of a gamma born from Decay whose parent is a known pi0:
+    // first daughter opens an in-progress record; second daughter completes it
+    // and ships it to the global DamsaPi0Collector.
+    if(particleName == "gamma" && track->GetCurrentStepNumber() == 1) {
+        const G4VProcess* pi0Creator = track->GetCreatorProcess();
+        if(pi0Creator && pi0Creator->GetProcessName() == "Decay") {
+            G4int parentID = track->GetParentID();
+            DamsaPi0TrackingState* state = DamsaPi0TrackingState::Instance();
+            if(state->pi0TrackIDs.count(parentID)) {
+                G4ThreeVector dpos = track->GetVertexPosition();
+                G4ThreeVector dmom = track->GetVertexMomentumDirection();
+                G4double      dkin = track->GetVertexKineticEnergy();
+                auto it = state->inProgressDecays.find(parentID);
+                if(it == state->inProgressDecays.end()) {
+                    Pi0Decay d;
+                    d.eventID       = eventID;
+                    d.pi0TrackID    = parentID;
+                    d.gamma1TrackID = trackID;
+                    d.vx = dpos.x(); d.vy = dpos.y(); d.vz = dpos.z();
+                    d.e1  = dkin;
+                    d.px1 = dmom.x(); d.py1 = dmom.y(); d.pz1 = dmom.z();
+                    state->inProgressDecays[parentID] = d;
+                } else {
+                    Pi0Decay& d     = it->second;
+                    d.gamma2TrackID = trackID;
+                    d.e2  = dkin;
+                    d.px2 = dmom.x(); d.py2 = dmom.y(); d.pz2 = dmom.z();
+                    G4ThreeVector m1(d.px1, d.py1, d.pz1);
+                    d.openingAngle = m1.angle(dmom);
+                    DamsaPi0Collector::Instance()->AddCompletedDecay(d);
+                    state->inProgressDecays.erase(it);
+                }
+            }
+        }
+    }
+
     // ─── Boundary crossing checks (scoring planes) ──────────────────────────
     G4StepPoint* postStepPoint = step->GetPostStepPoint();
     if(!postStepPoint) return;
 
     G4VPhysicalVolume* volume = postStepPoint->GetTouchableHandle()->GetVolume();
     if(!volume) return;
+
+    // ── pi0 calo energy attribution (any step type, before boundary filter) ──
+    // Accumulates energy deposited in physECAL by all descendants of tracked pi0s.
+    // Stored thread-locally and transferred to global collector in EndOfEventAction.
+    {
+        G4double edep = step->GetTotalEnergyDeposit();
+        if (edep > 0.0 && volume->GetName() == "physECAL") {
+            DamsaPi0TrackingState* pstate = DamsaPi0TrackingState::Instance();
+            auto anc = pstate->trackToPi0Ancestor.find(trackID);
+            if (anc != pstate->trackToPi0Ancestor.end()) {
+                pstate->pi0CaloEnergy_MeV[anc->second] += edep / MeV;
+            }
+        }
+    }
 
     G4StepStatus stepStatus = postStepPoint->GetStepStatus();
 
@@ -137,6 +191,10 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
                 position.x(), position.y(), position.z(),
                 momentum.x(), momentum.y(), momentum.z(),
                 trackID, eventID, evtWeight);
+            // Mark pi0 daughter gammas reaching the calorimeter
+            if(particleName == "gamma") {
+                DamsaPi0Collector::Instance()->MarkGammaAtCalo(trackID, eventID);
+            }
         }
     }
     // Calorimeter exit scoring plane

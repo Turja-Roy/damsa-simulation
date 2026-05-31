@@ -24,6 +24,9 @@
 #include "plotting.h"
 #include "locationData.h"
 
+// Free function: pi0->gg decay histograms + plots (implemented in analysis.cpp)
+void WritePi0ROOTHistograms(const G4String& filename, const std::string& prefix = "");
+
 class DamsaAnalysis
 {
 public:

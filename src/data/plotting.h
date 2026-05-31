@@ -19,10 +19,30 @@
 #include "TGaxis.h"
 #include "TColor.h"
 #include "TROOT.h"
+#include "TPolyLine3D.h"
+#include "TPolyMarker3D.h"
+#include "TView3D.h"
 #include <vector>
 #include <string>
+#include <algorithm>
 #include <cmath>
 #include <sys/stat.h>
+
+// Round up an energy value (MeV) to the nearest "nice" axis limit.
+// Finer granularity than the old snap so low-energy particles aren't
+// force-shown on a 0-8000 MeV axis.
+inline double SnapEnergyMax(double val)
+{
+    if (val <= 0) return 1.0;
+    static const double levels[] = {
+        0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50,
+        100, 200, 500, 1000, 2000, 5000, 8000
+    };
+    for (double lev : levels) {
+        if (val <= lev) return lev;
+    }
+    return 8000.0;
+}
 
 // Color scheme for particle types (consistent across all plots)
 const Color_t kPhotonColor = kRed;
@@ -154,17 +174,11 @@ inline TH1D* CreateEnergyHist(const std::vector<double>& energies,
                               const char* name, const char* title,
                               Color_t color, double maxE = -1.0, int nbins = 80) {
     double actualMaxE = maxE;
-    if (maxE < 0 && energies.size() > 0) {
-        actualMaxE = *max_element(energies.begin(), energies.end());
-        actualMaxE *= 1.2;
-        if (actualMaxE < 10.0) actualMaxE = 10.0;
-        else if (actualMaxE < 50.0) actualMaxE = 50.0;
-        else if (actualMaxE < 100.0) actualMaxE = 100.0;
-        else if (actualMaxE < 500.0) actualMaxE = 500.0;
-        else if (actualMaxE < 1000.0) actualMaxE = 1000.0;
-        else actualMaxE = 8000.0;
+    if (maxE < 0 && !energies.empty()) {
+        double dataMax = *std::max_element(energies.begin(), energies.end());
+        actualMaxE = SnapEnergyMax(dataMax * 1.2);
     } else if (maxE < 0) {
-        actualMaxE = 100.0;
+        actualMaxE = 10.0;
     }
     TH1D* h = new TH1D(name, title, nbins, 0, actualMaxE);
     for(size_t i = 0; i < energies.size(); i++) {

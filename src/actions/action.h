@@ -9,6 +9,7 @@
 #include "run.h"
 #include "event.h"
 #include "stepping.h"
+#include "tracking.h"
 
 class DamsaActionInitialization : public G4VUserActionInitialization {
 public:
@@ -48,6 +49,8 @@ void DamsaActionInitialization::Build () const {
     
     DamsaSteppingAction* steppingAction = new DamsaSteppingAction();
     SetUserAction(steppingAction);
+
+    SetUserAction(new DamsaTrackingAction());
 }
 
 #endif
