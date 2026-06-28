@@ -55,9 +55,12 @@ void DamsaRunAction::EndOfRunAction(const G4Run* run) {
     // injection mode there are no electrons → these would be empty/zero and
     // would clobber the real flux files used as input to alp_signal_pipeline.py.
     if (!isALPInject) {
+        // Delivered beam current from the active LESA mode (plan.md §2).
+        const G4double beamCurrent =
+            DamsaConfig::BeamSpecFor(DamsaConfig::gBeamMode).current_A();
         DamsaFluxCollector::Instance()->WriteBremsPhotonFluxCSV(prefix + "brems_photon_flux_target.csv");
-        DamsaFluxCollector::Instance()->WriteAlplibFlux(prefix + "alplib_photon_flux_exit.csv", nEvents, 62.5e-6);
-        DamsaFluxCollector::Instance()->WriteAlplibBremsFlux(prefix + "alplib_brems_flux.csv", nEvents, 62.5e-6);
+        DamsaFluxCollector::Instance()->WriteAlplibFlux(prefix + "alplib_photon_flux_exit.csv", nEvents, beamCurrent);
+        DamsaFluxCollector::Instance()->WriteAlplibBremsFlux(prefix + "alplib_brems_flux.csv", nEvents, beamCurrent);
     }
     
     // Print summary

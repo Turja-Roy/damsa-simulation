@@ -30,6 +30,7 @@
 #include "action.h"
 #include "analysis.h"
 #include "FluxData.h"
+#include "damsa_config.h"
 
 // Simple command-line argument parser
 struct OptConfig {
@@ -38,9 +39,10 @@ struct OptConfig {
     G4double gap = 0.0;           // cm (no gap by default)
     G4int nEvents = 1000;
     std::string outputDir = "output";
+    std::string beamMode = "lesa";   // dark|lesa|xleap|interleaved
     bool verbose = true;
     bool optimizeMode = false;    // Use config-specific filenames
-    
+
     bool parse(int argc, char** argv) {
         for (int i = 1; i < argc; i++) {
             std::string arg = argv[i];
@@ -59,6 +61,9 @@ struct OptConfig {
             }
             else if (arg == "--output-dir" && i + 1 < argc) {
                 outputDir = argv[++i];
+            }
+            else if (arg == "--beam-mode" && i + 1 < argc) {
+                beamMode = argv[++i];
             }
             else if (arg == "--quiet") {
                 verbose = false;
@@ -83,6 +88,7 @@ struct OptConfig {
                << "  --gap <cm>           Gap distance (default: 47.0)\n"
                << "  --n-events <N>       Number of events (default: 1000)\n"
                << "  --output-dir <dir>   Output directory (default: output)\n"
+               << "  --beam-mode <name>   LESA beam mode: dark|lesa|xleap|interleaved (default: lesa)\n"
                << "  --optimize           Use config-specific filenames (e.g., Tz10_xy5_G50_)\n"
                << "  --quiet              Suppress verbose output\n"
                << "  --help, -h           Show this help\n"
@@ -96,6 +102,7 @@ struct OptConfig {
         G4cout << "Gap:          " << gap << " cm" << G4endl;
         G4cout << "Events:       " << nEvents << G4endl;
         G4cout << "Output dir:   " << outputDir << G4endl;
+        G4cout << "Beam mode:    " << beamMode << G4endl;
         G4cout << "Optimize:     " << (optimizeMode ? "yes" : "no") << G4endl;
         G4cout << "===============================" << G4endl;
     }
@@ -147,7 +154,14 @@ int main(int argc, char** argv)
     if (config.verbose) {
         config.print();
     }
-    
+
+    // Apply LESA beam mode (sets flux normalization; plan.md §2).
+    if (!DamsaConfig::ParseBeamMode(config.beamMode, DamsaConfig::gBeamMode)) {
+        G4cerr << "ERROR: unknown --beam-mode '" << config.beamMode
+               << "' (use dark|lesa|xleap|interleaved)" << G4endl;
+        return 1;
+    }
+
     // Create output directory
     mkdir(config.outputDir.c_str(), 0755);
     
@@ -213,10 +227,12 @@ int main(int argc, char** argv)
     // Write background CSV
     DamsaFluxCollector::Instance()->WriteBackgroundCSV(filePrefix + "background_target_exit.csv");
     
-    // Write alplib-compatible flux
-    DamsaFluxCollector::Instance()->WriteAlplibFlux(filePrefix + "alplib_flux.csv", 
-                                                     config.nEvents, 
-                                                     62.5e-6);  // 62.5 uA beam
+    // Write alplib-compatible flux (delivered current from the active beam mode)
+    const G4double beamCurrent =
+        DamsaConfig::BeamSpecFor(DamsaConfig::gBeamMode).current_A();
+    DamsaFluxCollector::Instance()->WriteAlplibFlux(filePrefix + "alplib_flux.csv",
+                                                     config.nEvents,
+                                                     beamCurrent);
     
     // Write simulation metadata
     writeSimulationInfo(config, "output", exitPhotons, exitNeutrons, 

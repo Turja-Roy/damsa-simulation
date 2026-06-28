@@ -117,10 +117,25 @@ def load_geant4_brems_flux(csv_path, n_primaries):
     run.h:WriteAlplibBremsFlux).
     """
     data = []
+    beam_mode = None
+    beam_current_A = None
     with open(csv_path) as f:
         for line in f:
             line = line.strip()
-            if not line or line.startswith('#'):
+            if not line:
+                continue
+            if line.startswith('#'):
+                # The C++ writer (FluxData.h) stamps the beam normalization into
+                # the header. Read it here so Python never re-derives or
+                # double-applies the current — the rates below are ALREADY in
+                # photons/s at this delivered current.
+                if 'Beam mode:' in line:
+                    beam_mode = line.split(':', 1)[1].strip()
+                elif 'Beam current [A]:' in line:
+                    try:
+                        beam_current_A = float(line.split(':', 1)[1].strip())
+                    except ValueError:
+                        pass
                 continue
             parts = line.split(',')
             if len(parts) >= 2:
@@ -137,12 +152,18 @@ def load_geant4_brems_flux(csv_path, n_primaries):
 
     arr = np.array(data)
 
-    # Rescale: the file was produced with a specific n_primaries; if the caller
-    # passes a different n_primaries, re-scale accordingly.
-    # (The file is already in photons/second; no rescaling needed unless the
-    # WriteAlplibBremsFlux used a different n_primaries than the file header says.)
-    # We rely on the file being correctly normalised.
+    # The file is already in photons/second at the beam current stamped in its
+    # header; no rescaling needed here. To study a different LESA mode, rerun
+    # Geant4 with that mode (or rescale linearly by the current ratio).
     print(f"[flux] Loaded {len(arr)} bins from {csv_path}")
+    if beam_mode is not None:
+        cur = f"{beam_current_A:.3e} A" if beam_current_A is not None else "unknown"
+        print(f"[flux] Beam mode: {beam_mode}  (delivered current {cur})")
+    elif beam_current_A is not None:
+        print(f"[flux] Beam current: {beam_current_A:.3e} A")
+    else:
+        print("[flux] WARNING: no beam-mode/current header found "
+              "(old flux file?) — assuming rates are already normalized.")
     print(f"[flux] Energy range: {arr[:,0].min():.1f} – {arr[:,0].max():.1f} MeV")
     print(f"[flux] Total rate: {arr[:,1].sum():.3e} photons/s")
     return arr

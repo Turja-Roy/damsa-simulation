@@ -43,6 +43,7 @@ private:
     G4UIcmdWithADoubleAndUnit* fSetTargetLengthCmd;
     G4UIcmdWithADoubleAndUnit* fSetCaloSizeXYCmd;
     G4UIcmdWithAString*        fSetOutputPrefixCmd;
+    G4UIcmdWithAString*        fSetBeamModeCmd;
 };
 
 // ── Inline implementation ─────────────────────────────────────────────────────
@@ -55,7 +56,7 @@ private:
 inline DamsaDetectorMessenger::DamsaDetectorMessenger(DamsaDetectorConstruction* det)
 : fDetector(det), fDetDir(nullptr),
   fSetVDCLengthCmd(nullptr), fSetTargetLengthCmd(nullptr), fSetCaloSizeXYCmd(nullptr),
-  fSetOutputPrefixCmd(nullptr)
+  fSetOutputPrefixCmd(nullptr), fSetBeamModeCmd(nullptr)
 {
     fDetDir = new G4UIdirectory("/damsa/");
     fDetDir->SetGuidance("DAMSA detector control commands.");
@@ -92,6 +93,13 @@ inline DamsaDetectorMessenger::DamsaDetectorMessenger(DamsaDetectorConstruction*
     fSetOutputPrefixCmd->SetGuidance("Example: /damsa/setOutputPrefix output/Tz14/");
     fSetOutputPrefixCmd->SetParameterName("Prefix", false);
     fSetOutputPrefixCmd->AvailableForStates(G4State_PreInit, G4State_Idle);
+
+    fSetBeamModeCmd = new G4UIcmdWithAString("/damsa/setBeamMode", this);
+    fSetBeamModeCmd->SetGuidance("Set LESA beam mode (flux normalization).");
+    fSetBeamModeCmd->SetGuidance("Choices: dark | lesa | xleap | interleaved.");
+    fSetBeamModeCmd->SetParameterName("Mode", false);
+    fSetBeamModeCmd->SetCandidates("dark lesa xleap interleaved");
+    fSetBeamModeCmd->AvailableForStates(G4State_PreInit, G4State_Idle);
 }
 
 inline DamsaDetectorMessenger::~DamsaDetectorMessenger()
@@ -100,6 +108,7 @@ inline DamsaDetectorMessenger::~DamsaDetectorMessenger()
     delete fSetTargetLengthCmd;
     delete fSetCaloSizeXYCmd;
     delete fSetOutputPrefixCmd;
+    delete fSetBeamModeCmd;
     delete fDetDir;
 }
 
@@ -114,6 +123,20 @@ inline void DamsaDetectorMessenger::SetNewValue(G4UIcommand* cmd, G4String val)
     } else if (cmd == fSetOutputPrefixCmd) {
         DamsaConfig::gOutputPrefix = std::string(val);
         G4cout << "[Config] Output prefix set to: " << val << G4endl;
+    } else if (cmd == fSetBeamModeCmd) {
+        DamsaConfig::BeamMode mode;
+        if (DamsaConfig::ParseBeamMode(std::string(val), mode)) {
+            DamsaConfig::gBeamMode = mode;
+            G4cout << "[Config] Beam mode set to: "
+                   << DamsaConfig::BeamModeName(mode)
+                   << " (delivered current "
+                   << DamsaConfig::BeamSpecFor(mode).current_A() << " A)" << G4endl;
+        } else {
+            G4Exception("DamsaDetectorMessenger::SetNewValue", "BadBeamMode",
+                        JustWarning,
+                        ("Unknown beam mode '" + std::string(val) +
+                         "'; keeping previous mode.").c_str());
+        }
     }
 }
 
