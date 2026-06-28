@@ -24,6 +24,7 @@ void DamsaRunAction::BeginOfRunAction(const G4Run*) {
     // Reset flux collector at start of each run
     DamsaFluxCollector::Instance()->Reset();
     DamsaPi0Collector::Instance()->Reset();
+    DamsaConfig::gElectronsFired = 0;   // count electrons fired this run (Level B aware)
 }
 
 void DamsaRunAction::EndOfRunAction(const G4Run* run) {
@@ -58,14 +59,21 @@ void DamsaRunAction::EndOfRunAction(const G4Run* run) {
         // Delivered beam current from the active LESA mode (plan.md §2).
         const G4double beamCurrent =
             DamsaConfig::BeamSpecFor(DamsaConfig::gBeamMode).current_A();
+        // Normalize per ELECTRON fired, not per event: in pulsed Level B one
+        // event fires many electrons, so the event count would under-count the
+        // flux. In Level A this equals nEvents (one electron per event).
+        const G4double nElectrons =
+            static_cast<G4double>(DamsaConfig::gElectronsFired.load());
         DamsaFluxCollector::Instance()->WriteBremsPhotonFluxCSV(prefix + "brems_photon_flux_target.csv");
-        DamsaFluxCollector::Instance()->WriteAlplibFlux(prefix + "alplib_photon_flux_exit.csv", nEvents, beamCurrent);
-        DamsaFluxCollector::Instance()->WriteAlplibBremsFlux(prefix + "alplib_brems_flux.csv", nEvents, beamCurrent);
+        DamsaFluxCollector::Instance()->WriteAlplibFlux(prefix + "alplib_photon_flux_exit.csv", nElectrons, beamCurrent);
+        DamsaFluxCollector::Instance()->WriteAlplibBremsFlux(prefix + "alplib_brems_flux.csv", nElectrons, beamCurrent);
     }
     
     // Print summary
     G4cout << "\n=== Flux Collection Summary ===" << G4endl;
     G4cout << "Primary events: " << nEvents << G4endl;
+    G4cout << "Electrons fired: " << DamsaConfig::gElectronsFired.load()
+           << (DamsaConfig::gPulsedBeam ? "  (pulsed/Level B)" : "  (1 per event)") << G4endl;
     G4cout << "Photons at target exit: " << DamsaFluxCollector::Instance()->GetPhotonCount() << G4endl;
     G4cout << "Brems photons inside target: " << DamsaFluxCollector::Instance()->GetBremsPhotonCount() << G4endl;
     G4cout << "Neutrons at target exit: " << DamsaFluxCollector::Instance()->GetNeutronCount() << G4endl;

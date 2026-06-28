@@ -6,6 +6,10 @@
 #include "G4ParticleGun.hh"
 #include "G4SystemOfUnits.hh"
 #include "G4ParticleTable.hh"
+#include "Randomize.hh"
+
+#include "damsa_config.h"
+#include "gate_sampler.h"
 
 class DamsaPrimaryGenerator : public G4VUserPrimaryGeneratorAction {
 public:
@@ -13,38 +17,78 @@ public:
     virtual ~DamsaPrimaryGenerator();
 
     virtual void GeneratePrimaries(G4Event*);
-    
+
     void SetBeamEnergy(G4double energy);
     G4double GetBeamEnergy() const { return fCurrentEnergy; }
 
 private:
+    G4ThreeVector SampleBeamSpot() const;   // beam origin, optional transverse spread
+
     G4ParticleGun* fParticleGun;
     G4double fCurrentEnergy;
+    G4double fBeamOriginZ;
 };
 
-DamsaPrimaryGenerator::DamsaPrimaryGenerator () {
+DamsaPrimaryGenerator::DamsaPrimaryGenerator ()
+: fParticleGun(nullptr), fCurrentEnergy(8.*GeV), fBeamOriginZ(-60.*cm) {
     fParticleGun = new G4ParticleGun(1);
 
     G4ParticleTable* particleTable = G4ParticleTable::GetParticleTable();
     G4String particleName = "e-";
     G4ParticleDefinition* particle = particleTable->FindParticle(particleName);
 
-    G4ThreeVector pos(0., 0., -60.*cm);
+    G4ThreeVector pos(0., 0., fBeamOriginZ);
     G4ThreeVector mom(0., 0., 1.);
 
     fParticleGun->SetParticlePosition(pos);
     fParticleGun->SetParticleMomentumDirection(mom);
-    fParticleGun->SetParticleEnergy(8.*GeV);
+    fParticleGun->SetParticleEnergy(fCurrentEnergy);
     fParticleGun->SetParticleDefinition(particle);
-    
-    fCurrentEnergy = 8.*GeV;
 }
 DamsaPrimaryGenerator::~DamsaPrimaryGenerator () {
     delete fParticleGun;
 }
 
+G4ThreeVector DamsaPrimaryGenerator::SampleBeamSpot() const {
+    const G4double sigma = DamsaConfig::gBeamSpotSigma_mm * mm;
+    if (sigma <= 0.) return G4ThreeVector(0., 0., fBeamOriginZ);   // pencil beam
+    return G4ThreeVector(G4RandGauss::shoot(0., sigma),
+                         G4RandGauss::shoot(0., sigma),
+                         fBeamOriginZ);
+}
+
 void DamsaPrimaryGenerator::GeneratePrimaries(G4Event* anEvent) {
-    fParticleGun->GeneratePrimaryVertex(anEvent);
+    // Level A: one electron per event.
+    if (!DamsaConfig::gPulsedBeam) {
+        DamsaConfig::gElectronsFired += 1;
+        fParticleGun->GeneratePrimaryVertex(anEvent);
+        return;
+    }
+
+    // Level B: one event = one readout gate. Fire every electron in the gate
+    // into THIS event so their showers pile up (plan.md §3.2).
+    const DamsaConfig::BeamSpec spec = DamsaConfig::BeamSpecFor(DamsaConfig::gBeamMode);
+    int n = DamsaConfig::SampleGateOccupancy(spec, DamsaConfig::gReadoutGate_s,
+                                             DamsaConfig::gPoissonOccupancy);
+
+    if (n > DamsaConfig::gMaxDirectElectrons) {
+        G4ExceptionDescription msg;
+        msg << "Gate occupancy " << n << " exceeds gMaxDirectElectrons ("
+            << DamsaConfig::gMaxDirectElectrons << ") for beam mode "
+            << DamsaConfig::BeamModeName(DamsaConfig::gBeamMode)
+            << ". Direct multi-vertex shower simulation is intractable here; use "
+               "the overlay/shower-library path instead (plan.md §3.3 Strategy 2).";
+        G4Exception("DamsaPrimaryGenerator::GeneratePrimaries", "GateTooDense",
+                    FatalException, msg);
+    }
+    if (n < 1) n = 1;
+
+    DamsaConfig::gElectronsFired += n;
+    for (int i = 0; i < n; ++i) {
+        fParticleGun->SetParticlePosition(SampleBeamSpot());
+        fParticleGun->SetParticleEnergy(fCurrentEnergy);
+        fParticleGun->GeneratePrimaryVertex(anEvent);
+    }
 }
 
 void DamsaPrimaryGenerator::SetBeamEnergy(G4double energy) {

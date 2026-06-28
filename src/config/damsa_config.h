@@ -16,6 +16,7 @@
 //                  to obtain the calorimeter response to the signal.
 
 #include <string>
+#include <atomic>
 
 namespace DamsaConfig {
 
@@ -79,6 +80,24 @@ inline std::string gALPDecayCSV   = "";     // path to alp_decay_photons_maX.csv
 inline std::string gOutputPrefix  = "";     // prepended to every CSV/ROOT file in run.h
 inline double     gALPVertexZ_cm  = -45.0; // ALP production vertex z (target centre, cm)
 inline int        gALPRefireFactor = 1;    // number of times each ALP row is re-fired
+
+// ── Level B: beam time structure (plan.md §3) ───────────────────────────────
+// When gPulsedBeam is true, one Geant4 event = one calorimeter readout gate:
+// all electrons that fall within gReadoutGate_s are fired into the SAME event
+// so their showers / pi0 decays pile up exactly as the detector would sum them.
+inline bool       gPulsedBeam       = false;   // Level B on/off (default = Level A)
+inline double     gReadoutGate_s    = 1.0e-6;  // calo integration window [s]
+                                               // PLACEHOLDER 1 us — not from the
+                                               // paper; set from CsI design (plan §4)
+inline bool       gPoissonOccupancy = true;    // Poisson per-bunch occupancy vs fixed
+inline double     gBeamSpotSigma_mm = 0.0;     // transverse Gaussian beam spot (0 = pencil)
+inline int        gMaxDirectElectrons = 10000; // guard: above this, use overlay (§3.3 Strat 2)
+
+// Total electrons actually fired this run (summed across MT worker threads).
+// Equals the event count in Level A; exceeds it in pulsed Level B. run.h uses
+// this — not the event count — to normalize the flux CSVs, so the photons/s
+// scaling stays correct under pileup.
+inline std::atomic<long> gElectronsFired{0};
 
 }  // namespace DamsaConfig
 

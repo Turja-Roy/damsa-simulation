@@ -21,7 +21,9 @@
 #include "G4UImessenger.hh"
 #include "G4UIcmdWithADoubleAndUnit.hh"
 #include "G4UIcmdWithAString.hh"
+#include "G4UIcmdWithABool.hh"
 #include "G4UIdirectory.hh"
+#include "G4SystemOfUnits.hh"
 #include "damsa_config.h"
 
 // Forward declaration avoids circular include with construction.h.
@@ -44,6 +46,9 @@ private:
     G4UIcmdWithADoubleAndUnit* fSetCaloSizeXYCmd;
     G4UIcmdWithAString*        fSetOutputPrefixCmd;
     G4UIcmdWithAString*        fSetBeamModeCmd;
+    G4UIcmdWithABool*          fSetPulsedBeamCmd;
+    G4UIcmdWithADoubleAndUnit* fSetReadoutGateCmd;
+    G4UIcmdWithADoubleAndUnit* fSetBeamSpotSigmaCmd;
 };
 
 // ── Inline implementation ─────────────────────────────────────────────────────
@@ -56,7 +61,8 @@ private:
 inline DamsaDetectorMessenger::DamsaDetectorMessenger(DamsaDetectorConstruction* det)
 : fDetector(det), fDetDir(nullptr),
   fSetVDCLengthCmd(nullptr), fSetTargetLengthCmd(nullptr), fSetCaloSizeXYCmd(nullptr),
-  fSetOutputPrefixCmd(nullptr), fSetBeamModeCmd(nullptr)
+  fSetOutputPrefixCmd(nullptr), fSetBeamModeCmd(nullptr),
+  fSetPulsedBeamCmd(nullptr), fSetReadoutGateCmd(nullptr), fSetBeamSpotSigmaCmd(nullptr)
 {
     fDetDir = new G4UIdirectory("/damsa/");
     fDetDir->SetGuidance("DAMSA detector control commands.");
@@ -100,6 +106,30 @@ inline DamsaDetectorMessenger::DamsaDetectorMessenger(DamsaDetectorConstruction*
     fSetBeamModeCmd->SetParameterName("Mode", false);
     fSetBeamModeCmd->SetCandidates("dark lesa xleap interleaved");
     fSetBeamModeCmd->AvailableForStates(G4State_PreInit, G4State_Idle);
+
+    // ── Level B: beam time structure (plan.md §3) ──────────────────────────
+    fSetPulsedBeamCmd = new G4UIcmdWithABool("/damsa/setPulsedBeam", this);
+    fSetPulsedBeamCmd->SetGuidance("Enable pulsed beam (Level B): one event = one");
+    fSetPulsedBeamCmd->SetGuidance("readout gate, electrons in the gate pile up.");
+    fSetPulsedBeamCmd->SetParameterName("On", false);
+    fSetPulsedBeamCmd->AvailableForStates(G4State_PreInit, G4State_Idle);
+
+    fSetReadoutGateCmd = new G4UIcmdWithADoubleAndUnit("/damsa/setReadoutGate", this);
+    fSetReadoutGateCmd->SetGuidance("Calorimeter integration window (gate length).");
+    fSetReadoutGateCmd->SetGuidance("PLACEHOLDER 1 us default — set from CsI design.");
+    fSetReadoutGateCmd->SetParameterName("Gate", false);
+    fSetReadoutGateCmd->SetRange("Gate>0.");
+    fSetReadoutGateCmd->SetDefaultUnit("ns");
+    fSetReadoutGateCmd->SetUnitCandidates("ns us ms s");
+    fSetReadoutGateCmd->AvailableForStates(G4State_PreInit, G4State_Idle);
+
+    fSetBeamSpotSigmaCmd = new G4UIcmdWithADoubleAndUnit("/damsa/setBeamSpotSigma", this);
+    fSetBeamSpotSigmaCmd->SetGuidance("Transverse Gaussian beam spot sigma (0 = pencil beam).");
+    fSetBeamSpotSigmaCmd->SetParameterName("Sigma", false);
+    fSetBeamSpotSigmaCmd->SetRange("Sigma>=0.");
+    fSetBeamSpotSigmaCmd->SetDefaultUnit("mm");
+    fSetBeamSpotSigmaCmd->SetUnitCandidates("um mm cm");
+    fSetBeamSpotSigmaCmd->AvailableForStates(G4State_PreInit, G4State_Idle);
 }
 
 inline DamsaDetectorMessenger::~DamsaDetectorMessenger()
@@ -109,6 +139,9 @@ inline DamsaDetectorMessenger::~DamsaDetectorMessenger()
     delete fSetCaloSizeXYCmd;
     delete fSetOutputPrefixCmd;
     delete fSetBeamModeCmd;
+    delete fSetPulsedBeamCmd;
+    delete fSetReadoutGateCmd;
+    delete fSetBeamSpotSigmaCmd;
     delete fDetDir;
 }
 
@@ -137,6 +170,21 @@ inline void DamsaDetectorMessenger::SetNewValue(G4UIcommand* cmd, G4String val)
                         ("Unknown beam mode '" + std::string(val) +
                          "'; keeping previous mode.").c_str());
         }
+    } else if (cmd == fSetPulsedBeamCmd) {
+        DamsaConfig::gPulsedBeam = fSetPulsedBeamCmd->GetNewBoolValue(val);
+        G4cout << "[Config] Pulsed beam (Level B): "
+               << (DamsaConfig::gPulsedBeam ? "ON" : "OFF") << G4endl;
+    } else if (cmd == fSetReadoutGateCmd) {
+        // GetNewDoubleValue returns Geant4-internal time; /second → SI seconds.
+        DamsaConfig::gReadoutGate_s =
+            fSetReadoutGateCmd->GetNewDoubleValue(val) / second;
+        G4cout << "[Config] Readout gate set to: "
+               << DamsaConfig::gReadoutGate_s << " s" << G4endl;
+    } else if (cmd == fSetBeamSpotSigmaCmd) {
+        DamsaConfig::gBeamSpotSigma_mm =
+            fSetBeamSpotSigmaCmd->GetNewDoubleValue(val) / mm;
+        G4cout << "[Config] Beam spot sigma set to: "
+               << DamsaConfig::gBeamSpotSigma_mm << " mm" << G4endl;
     }
 }
 
