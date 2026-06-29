@@ -1,0 +1,9 @@
+# Level B — pulsed beam, dark-current mode (plan.md §3).
+# beamOn N here = N readout GATES, not N electrons.
+# Dark current ~7 e-/gate, so N gates ~= 7N electron showers.
+/damsa/setVDCLength 30 cm
+/damsa/setBeamMode dark
+/damsa/setPulsedBeam true
+/damsa/setReadoutGate 1 us
+/run/initialize
+/run/beamOn 20000

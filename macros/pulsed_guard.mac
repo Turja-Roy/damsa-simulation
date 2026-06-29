@@ -1,0 +1,8 @@
+# Level B guard test — LESA mode is too dense for direct multi-vertex.
+# Expect a FATAL "GateTooDense" exception pointing to the overlay path.
+/damsa/setVDCLength 30 cm
+/damsa/setBeamMode lesa
+/damsa/setPulsedBeam true
+/damsa/setReadoutGate 1 us
+/run/initialize
+/run/beamOn 1
