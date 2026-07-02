@@ -25,6 +25,10 @@ Usage:
 """
 
 import numpy as np
+
+# Delivered LESA-Laser beam current in uA (plan.md §1): 4200 e/bunch x 18 bunches x 929 kHz x e.
+LESA_DELIVERED_UA = 4200 * 18 * 929e3 * 1.602176634e-19 * 1e6
+
 import pandas as pd
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
@@ -145,7 +149,7 @@ def check_alplib_available():
 
 
 def load_flux_for_alplib(csv_path: str, n_primaries: int, 
-                         beam_current_uA: float = 62.5) -> np.ndarray:
+                         beam_current_uA: float = LESA_DELIVERED_UA) -> np.ndarray:
     """
     Load Geant4 photon flux and convert to alplib format with proper scaling.
     
@@ -159,7 +163,7 @@ def load_flux_for_alplib(csv_path: str, n_primaries: int,
     n_primaries : int
         Number of primary electrons simulated
     beam_current_uA : float
-        Beam current in microamperes (default: 62.5 for LCLS-II)
+        Beam current in microamperes (default: delivered LESA-Laser current ~0.0113)
         
     Returns
     -------
@@ -230,7 +234,7 @@ class ALPSignalVisualizer:
         
         # Default physics parameters
         self.beam_energy_GeV = 8.0
-        self.beam_current_uA = 62.5
+        self.beam_current_uA = LESA_DELIVERED_UA
         self.exposure_days = 30.0
         
         # Store calculated results
@@ -824,8 +828,8 @@ Examples:
     # Beam scaling parameters
     parser.add_argument('--nprimaries', '-n', type=int, default=None,
                        help='Number of primary electrons simulated (enables beam scaling)')
-    parser.add_argument('--beam-current', type=float, default=62.5,
-                       help='Beam current in μA (default: 62.5 for LCLS-II)')
+    parser.add_argument('--beam-current', type=float, default=LESA_DELIVERED_UA,
+                       help='Beam current in μA (default: delivered LESA-Laser current ~0.0113)')
     
     # Detector parameters
     parser.add_argument('--det-dist', type=float, default=1.0,

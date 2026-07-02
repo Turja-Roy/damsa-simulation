@@ -19,6 +19,11 @@ import numpy as np
 from typing import Tuple, Optional, Dict, Any, List
 from dataclasses import dataclass, field
 
+# Delivered LESA-Laser beam current in µA (plan.md §1):
+# 4200 e/bunch × 18 bunches/kick × 929 kHz × e. The old 62.5 µA default was
+# ~2500× the real beam.
+LESA_DELIVERED_UA = 4200 * 18 * 929e3 * 1.602176634e-19 * 1e6
+
 # Try to import alplib for signal calculation
 # Add parent directory to path so alplib can be imported as a module
 import sys
@@ -407,7 +412,8 @@ class ObjectiveFunctions:
     Parameters
     ----------
     beam_current_uA : float
-        Beam current in microamperes (default: 62.5)
+        Beam current in microamperes (default: delivered LESA-Laser current,
+        4200 e/bunch × 18 bunches × 929 kHz ≈ 0.0112 µA; see plan.md §1)
     axion_mass_MeV : float
         ALP mass for signal calculation
     axion_coupling : float
@@ -419,7 +425,7 @@ class ObjectiveFunctions:
     """
     
     def __init__(self,
-                 beam_current_uA: float = 62.5,
+                 beam_current_uA: float = LESA_DELIVERED_UA,
                  axion_mass_MeV: float = 100.0,
                  axion_coupling: float = 1e-3,
                  exposure_days: float = 30.0,

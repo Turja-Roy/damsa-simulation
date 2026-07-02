@@ -31,6 +31,10 @@ Usage
 """
 
 import argparse
+
+# Delivered LESA-Laser beam current in uA (plan.md §1): 4200 e/bunch x 18 bunches x 929 kHz x e.
+LESA_DELIVERED_UA = 4200 * 18 * 929e3 * 1.602176634e-19 * 1e6
+
 import sys
 from pathlib import Path
 
@@ -355,7 +359,7 @@ def main():
     parser.add_argument('--particles',    default='output/all_particles_target_exit.csv')
     parser.add_argument('--flux',         default='output/alplib_brems_flux.csv')
     parser.add_argument('--n-primaries',  type=int,   default=100000)
-    parser.add_argument('--beam-uA',      type=float, default=62.5)
+    parser.add_argument('--beam-uA',      type=float, default=LESA_DELIVERED_UA)
     parser.add_argument('--exposure-days',type=float, default=30.0)
     parser.add_argument('--target-min',   type=int,   default=10)
     parser.add_argument('--target-max',   type=int,   default=20)
