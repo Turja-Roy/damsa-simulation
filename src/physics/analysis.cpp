@@ -411,6 +411,7 @@ void WriteEvolutionHistograms(TFile* rootFile, std::map<G4String, DamsaLocationD
 {
     rootFile->mkdir("Evolution");
     rootFile->mkdir("Statistics");
+    rootFile->mkdir("Comparison");
     
     rootFile->cd("Evolution");
     
