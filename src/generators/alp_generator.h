@@ -46,7 +46,7 @@ public:
     explicit DamsaALPDecayGenerator(const std::string& csv_path,
                                     G4double vertex_z_cm = -45.0,
                                     G4int refire_factor = 1)
-    : fVertexZ(vertex_z_cm * cm), fRefireFactor(refire_factor), fRefireCounter(0)
+    : fVertexZ(vertex_z_cm * cm), fRefireFactor(refire_factor)
     {
         fInstance = this;  // Set static instance for access from stepping action
         fParticleGun = new G4ParticleGun(1);
@@ -69,11 +69,21 @@ public:
 
     void GeneratePrimaries(G4Event* event) override
     {
-        const ALPDecayEvent& ev = fEvents[fCurrentEvent];
-        
-        // Store current event weight for retrieval by stepping action
+        // Index the CSV row by GLOBAL event ID, not a per-instance counter.
+        // In MT mode each worker thread owns its own generator instance; a
+        // sequential per-instance counter would make every thread start again
+        // at row 0 (early rows fired once per thread, late rows never fired).
+        // eventID-based indexing fires each row exactly fRefireFactor times
+        // regardless of how events are scheduled across threads.
+        const std::size_t idx =
+            (static_cast<std::size_t>(event->GetEventID()) / fRefireFactor)
+            % fEvents.size();
+        const ALPDecayEvent& ev = fEvents[idx];
+
+        // Store current event weight for retrieval by the stepping action.
+        // Thread-local: stepping for this event runs on this same thread.
         // (row weight divided by refire factor to preserve total)
-        fCurrentEventWeight = ev.weight / G4double(fRefireFactor);
+        fgCurrentEventWeight = ev.weight / G4double(fRefireFactor);
 
         // Fire γ1
         fParticleGun->SetParticleEnergy(ev.E1 * MeV);
@@ -84,16 +94,12 @@ public:
         fParticleGun->SetParticleEnergy(ev.E2 * MeV);
         fParticleGun->SetParticleMomentumDirection(G4ThreeVector(ev.px2, ev.py2, ev.pz2));
         fParticleGun->GeneratePrimaryVertex(event);
-        
-        // Advance refire counter; move to next row when all refires done
-        if (++fRefireCounter >= fRefireFactor) {
-            fRefireCounter = 0;
-            if (++fCurrentEvent >= fEvents.size()) fCurrentEvent = 0;
-        }
     }
-    
-    // Get the weight for the current event (for use by stepping action)
-    G4double GetCurrentEventWeight() const { return fCurrentEventWeight; }
+
+    // Weight of the event currently being processed ON THIS THREAD.
+    // fInstance is shared (last constructed instance wins), so an instance
+    // member would race across workers; the thread-local static does not.
+    G4double GetCurrentEventWeight() const { return fgCurrentEventWeight; }
     
     // Static instance pointer for access from stepping action
     static DamsaALPDecayGenerator* Instance() { return fInstance; }
@@ -110,13 +116,12 @@ private:
     G4ParticleGun* fParticleGun;
     G4double fVertexZ;
     std::vector<ALPDecayEvent> fEvents;
-    size_t fCurrentEvent = 0;
     G4int  fRefireFactor = 1;     // each input row fired this many times
-    G4int  fRefireCounter = 0;    // 0..fRefireFactor-1
     G4int  fRejectedRows = 0;     // number of zero-weight rows skipped during load
-    G4double fCurrentEventWeight = 1.0;  // weight for current event (events/day / refire_factor)
-    
+
     static DamsaALPDecayGenerator* fInstance;
+    // Per-thread current event weight (events over exposure / refire_factor).
+    static thread_local G4double fgCurrentEventWeight;
 
     void LoadEvents(const std::string& csv_path)
     {
@@ -161,5 +166,6 @@ private:
 
 // Static member initialization
 inline DamsaALPDecayGenerator* DamsaALPDecayGenerator::fInstance = nullptr;
+inline thread_local G4double DamsaALPDecayGenerator::fgCurrentEventWeight = 1.0;
 
 #endif // ALP_GENERATOR_H
