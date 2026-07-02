@@ -1,7 +1,7 @@
 # Target length scan — L_target = 12 cm
 # 5000 events: sufficient (296 brem photons/primary → 1.5M photon spectrum entries)
 
-/damsa/setOutputPrefix output/Tz12/
+/damsa/setOutputPrefix Tz12_
 /damsa/setTargetLength 12 cm
 /damsa/setVDCLength 35 cm
 /run/initialize
