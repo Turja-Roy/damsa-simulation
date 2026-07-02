@@ -66,10 +66,15 @@ void DamsaPrimaryGenerator::GeneratePrimaries(G4Event* anEvent) {
     }
 
     // Level B: one event = one readout gate. Fire every electron in the gate
-    // into THIS event so their showers pile up (plan.md §3.2).
+    // into THIS event so their showers pile up (plan.md §3.2). Each electron
+    // carries its bunch's arrival time (b * bunchSpacing) so global times in
+    // the scoring output reflect the real intra-gate structure.
     const DamsaConfig::BeamSpec spec = DamsaConfig::BeamSpecFor(DamsaConfig::gBeamMode);
-    int n = DamsaConfig::SampleGateOccupancy(spec, DamsaConfig::gReadoutGate_s,
-                                             DamsaConfig::gPoissonOccupancy);
+    const std::vector<int> occ = DamsaConfig::SampleGateBunchOccupancies(
+        spec, DamsaConfig::gReadoutGate_s, DamsaConfig::gPoissonOccupancy);
+
+    long n = 0;
+    for (int nb : occ) n += nb;
 
     if (n > DamsaConfig::gMaxDirectElectrons) {
         G4ExceptionDescription msg;
@@ -81,13 +86,34 @@ void DamsaPrimaryGenerator::GeneratePrimaries(G4Event* anEvent) {
         G4Exception("DamsaPrimaryGenerator::GeneratePrimaries", "GateTooDense",
                     FatalException, msg);
     }
-    if (n < 1) n = 1;
+
+    if (n == 0) {
+        // Empty gate (e.g. dark current, P ≈ 1e-3). Geant4 cannot process an
+        // event with no primary vertex, so fire a single geantino: it does not
+        // interact or deposit energy, and the stepping action ignores it. The
+        // gate still counts as an event (denominator of the gate rate) while
+        // gElectronsFired stays untouched — no occupancy bias.
+        fParticleGun->SetParticleDefinition(
+            G4ParticleTable::GetParticleTable()->FindParticle("geantino"));
+        fParticleGun->SetParticlePosition(G4ThreeVector(0., 0., fBeamOriginZ));
+        fParticleGun->SetParticleTime(0.);
+        fParticleGun->SetParticleEnergy(1.*keV);
+        fParticleGun->GeneratePrimaryVertex(anEvent);
+        fParticleGun->SetParticleDefinition(
+            G4ParticleTable::GetParticleTable()->FindParticle("e-"));
+        fParticleGun->SetParticleEnergy(fCurrentEnergy);
+        return;
+    }
 
     DamsaConfig::gElectronsFired += n;
-    for (int i = 0; i < n; ++i) {
-        fParticleGun->SetParticlePosition(SampleBeamSpot());
-        fParticleGun->SetParticleEnergy(fCurrentEnergy);
-        fParticleGun->GeneratePrimaryVertex(anEvent);
+    for (std::size_t b = 0; b < occ.size(); ++b) {
+        const G4double bunchTime = b * spec.bunchSpacing_s * second;
+        for (int i = 0; i < occ[b]; ++i) {
+            fParticleGun->SetParticlePosition(SampleBeamSpot());
+            fParticleGun->SetParticleTime(bunchTime);
+            fParticleGun->SetParticleEnergy(fCurrentEnergy);
+            fParticleGun->GeneratePrimaryVertex(anEvent);
+        }
     }
 }
 

@@ -14,22 +14,34 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 #include "G4Poisson.hh"
 #include "damsa_config.h"
 
 namespace DamsaConfig {
 
-inline int SampleGateOccupancy(const BeamSpec& s, double gate_s, bool poisson) {
+// Per-bunch occupancies for one gate. Index b = bunch number; the electron
+// arrival time within the gate is b * bunchSpacing_s (used by the generator to
+// give each vertex its physical time offset).
+inline std::vector<int> SampleGateBunchOccupancies(const BeamSpec& s, double gate_s,
+                                                   bool poisson) {
     int nb = static_cast<int>(std::floor(gate_s / s.bunchSpacing_s));
     nb = std::min(nb, s.bunchesPerKick);
     if (nb < 1) nb = 1;   // always at least one bunch in the gate
 
-    long total = 0;
+    std::vector<int> occ(nb, 0);
     for (int b = 0; b < nb; ++b) {
-        total += poisson ? static_cast<long>(G4Poisson(s.bunchCharge_e))
-                         : std::lround(s.bunchCharge_e);
+        occ[b] = poisson ? static_cast<int>(G4Poisson(s.bunchCharge_e))
+                         : static_cast<int>(std::lround(s.bunchCharge_e));
     }
+    return occ;
+}
+
+inline int SampleGateOccupancy(const BeamSpec& s, double gate_s, bool poisson) {
+    const auto occ = SampleGateBunchOccupancies(s, gate_s, poisson);
+    long total = 0;
+    for (int n : occ) total += n;
     return static_cast<int>(total);
 }
 
