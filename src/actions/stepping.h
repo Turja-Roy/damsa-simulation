@@ -35,6 +35,9 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
 {
     G4Track* track = step->GetTrack();
     G4String particleName = track->GetDefinition()->GetParticleName();
+    // Placeholder primary for empty pulsed-beam gates (generator.h) — must not
+    // appear in any scoring output.
+    if (particleName == "geantino") return;
     G4int trackID = track->GetTrackID();
     G4int eventID = G4EventManager::GetEventManager()->GetConstCurrentEvent()->GetEventID();
     
@@ -55,13 +58,16 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
     if(particleName == "gamma" && track->GetCurrentStepNumber() == 1) {
         G4VPhysicalVolume* birthVolume = step->GetPreStepPoint()->GetTouchableHandle()->GetVolume();
         if(birthVolume && birthVolume->GetName() == "physTungsten") {
-            G4double brems_energy = track->GetKineticEnergy();
+            // Birth (vertex) kinematics, NOT post-step: at the end of step 1 the
+            // photon may already have Compton-scattered (degraded energy) or been
+            // absorbed (E=0), which would bias the recorded brems spectrum.
+            G4double brems_energy = track->GetVertexKineticEnergy();
             if(brems_energy > 1.0*MeV) {
                 const G4VProcess* creatorProcess = track->GetCreatorProcess();
                 G4String processName = creatorProcess ? creatorProcess->GetProcessName() : "primary";
                 if(processName == "eBrem" || processName == "annihil" || processName == "conv") {
-                    G4ThreeVector bpos = step->GetPreStepPoint()->GetPosition();
-                    G4ThreeVector bmom = track->GetMomentumDirection();
+                    G4ThreeVector bpos = track->GetVertexPosition();
+                    G4ThreeVector bmom = track->GetVertexMomentumDirection();
                     G4double btime    = step->GetPreStepPoint()->GetGlobalTime();
                     DamsaFluxCollector::Instance()->RecordBremsPhoton(
                         brems_energy, btime,
@@ -191,9 +197,17 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
                 position.x(), position.y(), position.z(),
                 momentum.x(), momentum.y(), momentum.z(),
                 trackID, eventID, evtWeight);
-            // Mark pi0 daughter gammas reaching the calorimeter
+            // Mark pi0 daughter gammas reaching the calorimeter.
+            // Filter to Decay-created daughters of known pi0s here: the collector
+            // stores unmatched marks as pending (first daughter crosses the calo
+            // before its decay record is completed), so feeding it every gamma
+            // would grow the pending set unboundedly.
             if(particleName == "gamma") {
-                DamsaPi0Collector::Instance()->MarkGammaAtCalo(trackID, eventID);
+                const G4VProcess* cp = track->GetCreatorProcess();
+                if(cp && cp->GetProcessName() == "Decay" &&
+                   DamsaPi0TrackingState::Instance()->pi0TrackIDs.count(track->GetParentID())) {
+                    DamsaPi0Collector::Instance()->MarkGammaAtCalo(trackID, eventID);
+                }
             }
         }
     }

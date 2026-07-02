@@ -106,6 +106,11 @@ private:
     // Key: (eventID, trackID) — avoids cross-event aliasing (trackIDs reset per event)
     std::map<std::pair<G4int,G4int>, G4int> fGammaToDecayIdx;  // (evtID, gamTID) → fDecays idx
     std::map<std::pair<G4int,G4int>, G4int> fPi0ToDecayIdx;    // (evtID, pi0TID) → fDecays idx
+    // Calo crossings seen BEFORE the decay record is completed. Geant4 tracks
+    // the first daughter gamma to completion (including its calo-plane crossing)
+    // before the second daughter's step 1 completes the record, so the first
+    // daughter's AtCalo mark would otherwise be silently dropped.
+    std::set<std::pair<G4int,G4int>> fPendingCaloMarks;        // (evtID, gamTID)
 
     G4int fTotalPi0Produced;
 
@@ -164,13 +169,35 @@ inline void DamsaPi0Collector::AddCompletedDecay(const Pi0Decay& d)
     if (dc.gamma2TrackID >= 0)
         fGammaToDecayIdx[{dc.eventID, dc.gamma2TrackID}] = idx;
     fPi0ToDecayIdx[{dc.eventID, dc.pi0TrackID}] = idx;
+
+    // Apply calo crossings that arrived before this record existed (the first
+    // daughter is fully tracked — calo plane included — before the second
+    // daughter's step 1 completes the record).
+    auto p1 = fPendingCaloMarks.find({dc.eventID, dc.gamma1TrackID});
+    if (p1 != fPendingCaloMarks.end()) {
+        fDecays[idx].gamma1AtCalo = true;
+        fPendingCaloMarks.erase(p1);
+    }
+    if (dc.gamma2TrackID >= 0) {
+        auto p2 = fPendingCaloMarks.find({dc.eventID, dc.gamma2TrackID});
+        if (p2 != fPendingCaloMarks.end()) {
+            fDecays[idx].gamma2AtCalo = true;
+            fPendingCaloMarks.erase(p2);
+        }
+    }
 }
 
 inline void DamsaPi0Collector::MarkGammaAtCalo(G4int trackID, G4int eventID)
 {
     G4AutoLock lock(&fMutex);
     auto it = fGammaToDecayIdx.find({eventID, trackID});
-    if (it == fGammaToDecayIdx.end()) return;
+    if (it == fGammaToDecayIdx.end()) {
+        // Decay record not completed yet — remember the crossing; it is applied
+        // in AddCompletedDecay. Unmatched entries (non-pi0-daughter gammas never
+        // reach here; Dalitz single-gamma records) are discarded on Reset.
+        fPendingCaloMarks.insert({eventID, trackID});
+        return;
+    }
     Pi0Decay& d = fDecays[it->second];
     if      (d.gamma1TrackID == trackID) d.gamma1AtCalo = true;
     else if (d.gamma2TrackID == trackID) d.gamma2AtCalo = true;
@@ -196,6 +223,7 @@ inline void DamsaPi0Collector::Reset()
     fDecays.clear();
     fGammaToDecayIdx.clear();
     fPi0ToDecayIdx.clear();
+    fPendingCaloMarks.clear();
     fTotalPi0Produced = 0;
 }
 
