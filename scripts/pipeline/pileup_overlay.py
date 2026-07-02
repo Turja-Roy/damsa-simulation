@@ -28,6 +28,12 @@ clustering or energy smearing). It is the right first-order observable for the
 accidental background; a full per-cell calo overlay would refine the energy
 resolution but needs cell-level scoring that does not exist yet.
 
+Two library modes:
+  default      : pi0_decays.csv — only pi0->gg daughters are fake candidates.
+  --calo-face  : calo_face_particles.csv — EVERY photon crossing the calo
+                 entrance (brems, shower, pi0) is a candidate; this is the full
+                 SM accidental pool and gives the physically complete rate.
+
 Usage:
     # build the library first (any non-pulsed run; mode is irrelevant here):
     ./build/damsa macros/run.mac            # -> output/pi0_decays.csv, 100k electrons
@@ -126,14 +132,62 @@ def load_library(csv_path, use_geom_accept=False):
     return photon_sets, n_calo_photons
 
 
+def load_calo_face_library(csv_path, min_photon_E):
+    """Parse calo_face_particles.csv into per-electron photon lists.
+
+    Unlike the pi0 library, this includes EVERY photon that physically crossed
+    the calo entrance plane (bremsstrahlung, shower photons, pi0 daughters, …),
+    which is the full SM fake-candidate pool. All photons of one electron share
+    one parent tag (its eventID): pairs within a single electron's shower are
+    correlated single-electron background, not accidentals, and are counted
+    only across different draws.
+
+    Columns (FluxData.h WriteCaloFaceCSV):
+      0 pdg 1 energy_MeV 2 time_ns 3-5 x,y,z 6-8 px,py,pz 9 weight 10 trackID 11 eventID
+    """
+    per_electron = {}
+    n_photons = 0
+
+    with open(csv_path) as f:
+        f.readline()  # header
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            c = line.split(',')
+            if len(c) < 12:
+                continue
+            try:
+                if int(float(c[0])) != 22:
+                    continue
+                E = float(c[1])
+                if E < min_photon_E:
+                    continue
+                evt = int(float(c[11]))
+                per_electron.setdefault(evt, []).append(
+                    [E, float(c[6]), float(c[7]), float(c[8]), float(evt)])
+                n_photons += 1
+            except (ValueError, IndexError):
+                continue
+
+    photon_sets = [np.array(v, dtype=float) for v in per_electron.values() if v]
+    return photon_sets, n_photons
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Accidental pair counting within one gate
 # ──────────────────────────────────────────────────────────────────────────────
 
 def count_fakes_in_gate(photons, mass_lo, mass_hi, esum_thr, max_pairs, rng):
-    """Count accidental (different-parent) gamma-gamma pairs passing the ALP window.
+    """Count accidental (different-source) gamma-gamma pairs passing the ALP window.
 
-    photons : (K, 5) array [E, ux, uy, uz, tag] — directions assumed unit norm.
+    photons : (K, 6) array [E, ux, uy, uz, tag, draw] — directions unit norm.
+    `draw` is the index of the library draw the photon came from: the library is
+    sampled WITH replacement, so the same library electron drawn twice
+    represents two independent real electrons — its photons must pair as
+    accidentals even though their tags collide. Same-source = same tag AND same
+    draw (one real pi0's gamma-gamma, or one electron's own shower in calo-face
+    mode).
     Returns the (possibly subsample-scaled) number of fake pairs in this gate.
     """
     K = len(photons)
@@ -143,6 +197,7 @@ def count_fakes_in_gate(photons, mass_lo, mass_hi, esum_thr, max_pairs, rng):
     E = photons[:, 0]
     u = photons[:, 1:4]
     tag = photons[:, 4]
+    draw = photons[:, 5]
 
     # All unordered pairs; subsample if too many to keep runtime bounded.
     i_idx, j_idx = np.triu_indices(K, k=1)
@@ -153,8 +208,8 @@ def count_fakes_in_gate(photons, mass_lo, mass_hi, esum_thr, max_pairs, rng):
         i_idx, j_idx = i_idx[sel], j_idx[sel]
         scale = n_all / max_pairs
 
-    # Reject same-parent pairs (those are one real pi0's gamma gamma, not accidental).
-    diff_parent = tag[i_idx] != tag[j_idx]
+    # Reject same-source pairs (not accidental).
+    diff_parent = (tag[i_idx] != tag[j_idx]) | (draw[i_idx] != draw[j_idx])
     i_idx, j_idx = i_idx[diff_parent], j_idx[diff_parent]
     if len(i_idx) == 0:
         return 0.0
@@ -196,7 +251,13 @@ def run_overlay(photon_sets, n_lib_electrons, spec, args, rng):
         if m < 1:
             continue
         pick = rng.integers(0, n_sets, size=m)
-        photons = np.vstack([photon_sets[p] for p in pick])
+        # Append a draw-index column: repeated draws of the same library
+        # electron are independent real electrons, distinguished by draw index.
+        photons = np.vstack([
+            np.column_stack([photon_sets[p],
+                             np.full(len(photon_sets[p]), k, dtype=float)])
+            for k, p in enumerate(pick)
+        ])
         K = len(photons)
         max_K_seen = max(max_K_seen, K)
         if K > args.max_photons_per_gate:
@@ -237,9 +298,17 @@ def run_overlay(photon_sets, n_lib_electrons, spec, args, rng):
 
 def main():
     ap = argparse.ArgumentParser(description="DAMSA pileup overlay / accidental coincidence tool")
-    ap.add_argument("--library", required=True, help="pi0_decays.csv from a non-pulsed run")
+    ap.add_argument("--library", required=True,
+                    help="pi0_decays.csv (default) or calo_face_particles.csv "
+                         "(with --calo-face) from a non-pulsed run")
     ap.add_argument("--n-library-electrons", type=int, required=True,
                     help="electrons fired to build the library (= beamOn of that run)")
+    ap.add_argument("--calo-face", action="store_true",
+                    help="library is calo_face_particles.csv: use ALL photons at "
+                         "the calo face (full SM fake pool), not only pi0 daughters")
+    ap.add_argument("--min-photon-E", type=float, default=1.0,
+                    help="min single-photon energy [MeV] for calo-face library "
+                         "(default 1.0)")
     ap.add_argument("--beam-mode", choices=list(BEAM_MODES), default="dark")
     ap.add_argument("--gate-ns", type=float, default=1000.0, help="readout gate [ns] (default 1us)")
     ap.add_argument("--n-trials", type=int, default=100000, help="synthetic gates to simulate")
@@ -260,7 +329,10 @@ def main():
     spec = BEAM_MODES[args.beam_mode]
 
     print(f"[lib] loading {args.library} ...")
-    photon_sets, n_calo = load_library(args.library, args.use_geom_accept)
+    if args.calo_face:
+        photon_sets, n_calo = load_calo_face_library(args.library, args.min_photon_E)
+    else:
+        photon_sets, n_calo = load_library(args.library, args.use_geom_accept)
     if not photon_sets:
         sys.exit("[lib] no calo-reaching photons in library — run a bigger non-pulsed "
                  "sim, or pass --use-geom-accept for a looser acceptance flag.")
