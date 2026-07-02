@@ -50,8 +50,11 @@ except ImportError:
 # Geometry — update these to match your run's optimal configuration
 # ──────────────────────────────────────────────────────────────────────────────
 BEAM_ENERGY_MEV   = 8000.0    # 8 GeV LCLS-II electron beam
-BEAM_CURRENT_UA   = 62.5      # μA  (confirm with SLAC ops)
-ELECTRONS_PER_S   = BEAM_CURRENT_UA * 1e-6 / CHARGE_COULOMBS
+# Delivered LESA-Laser current (plan.md §1: 4200 e/bunch × 18 bunches × 929 kHz
+# ≈ 11.2 nA). Used ONLY by the analytic Bethe-Heitler fallback; the Geant4 flux
+# path reads its normalization from the CSV header written by FluxData.h.
+BEAM_CURRENT_A    = 4200 * 18 * 929e3 * CHARGE_COULOMBS
+ELECTRONS_PER_S   = BEAM_CURRENT_A / CHARGE_COULOMBS
 
 TARGET_LENGTH_M   = 0.10      # 10 cm tungsten dump
 TARGET_HALF_M     = TARGET_LENGTH_M / 2.0   # 5 cm — reference for decay vertex (target centre)
@@ -180,7 +183,8 @@ def pick_safe_coupling(ma_MeV, photon_flux, target_decay_length_m=5.0):
     ~0.52 m (target centre → calo face), so 5 m gives surv_prob ≈ 1 − 0.52/5 ≈ 0.9.
 
         Γ = g² mₐ³ / (64π),  L_decay = (Eₐ/mₐ)(ℏc/Γ)
-        ⇒ g² = 64π · ℏc · Eₐ / (L_decay · mₐ³)       [MeV⁻²]
+        ⇒ g² = 64π · ℏc · Eₐ / (L_decay · mₐ⁴)       [MeV⁻²]
+    (mₐ⁴: one power from Γ ∝ mₐ³ and one from the boost Eₐ/mₐ.)
     """
     E = photon_flux[:, 0]
     w = photon_flux[:, 1]
@@ -190,7 +194,7 @@ def pick_safe_coupling(ma_MeV, photon_flux, target_decay_length_m=5.0):
     Ea_typ = np.average(E[mask], weights=w[mask])       # MeV
 
     g_sq_MeV = (64.0 * np.pi * METER_BY_MEV * Ea_typ
-                / (target_decay_length_m * ma_MeV**3))
+                / (target_decay_length_m * ma_MeV**4))
     g_MeV = np.sqrt(g_sq_MeV)
     return g_MeV * 1000.0                               # MeV⁻¹ → GeV⁻¹
 
@@ -240,6 +244,13 @@ def run_alplib(photon_flux, ma_MeV, coupling_GeV, n_samples=5000):
     # Unit conversion: 1 GeV^-1 = 1e-3 MeV^-1
     coupling_MeV = coupling_GeV / 1000.0
 
+    # alplib's primakoff_sigma (Creswick, screened) is an mₐ ≪ E_γ
+    # approximation: no mass dependence beyond the production threshold.
+    if ma_MeV > 500.0:
+        print(f"  [warn] ma={ma_MeV:.0f} MeV: alplib primakoff_sigma neglects "
+              f"mass effects in the cross section (valid for ma << E_gamma); "
+              f"production rate increasingly overestimated at this mass.")
+
     flux_obj = FluxPrimakoffIsotropic(
         photon_flux   = photon_flux,
         target        = Material("W"),
@@ -251,17 +262,42 @@ def run_alplib(photon_flux, ma_MeV, coupling_GeV, n_samples=5000):
         n_samples     = n_samples,
     )
     flux_obj.simulate()
-    flux_obj.propagate()
+    # is_isotropic=False: the default (True) multiplies every weight by the
+    # isotropic solid-angle acceptance det_area/(4π·det_dist²) ≈ 5e-3, which
+    # models an isotropic ALP source (reactor/sun). DAMSA ALPs inherit the
+    # direction of forward-collimated 8 GeV bremsstrahlung photons — alplib
+    # itself samples the decays with θ_ALP = 0 (forward) in
+    # simulate_decay_4vectors — so the isotropic factor is the wrong model
+    # AND double-counts the transverse_acceptance_mask() applied downstream.
+    # Acceptance is instead applied per decay by the transverse mask (Python)
+    # or by the real Geant4 geometry (re-injection path).
+    flux_obj.propagate(is_isotropic=False)
 
     gen = PhotonEventGenerator(flux_obj, Material("CsI"))
     return flux_obj, gen
 
 
 def signal_events(photon_flux, ma_MeV, coupling_GeV, n_samples=500,
-                  threshold_MeV=5.0):
-    """Return total signal events for given exposure."""
-    _, gen = run_alplib(photon_flux, ma_MeV, coupling_GeV, n_samples)
-    return gen.decays(days_exposure=EXPOSURE_DAYS, threshold=threshold_MeV)
+                  threshold_MeV=5.0, n_decay_samples=4):
+    """Return total signal events for given exposure.
+
+    Samples a→γγ decays, requires BOTH photons to hit the calo face
+    (transverse_acceptance_mask), and sums the surviving weights above the
+    energy threshold. This replaces gen.decays(), which applied no transverse
+    acceptance at all (it relied on the removed isotropic solid-angle factor).
+    """
+    flux_obj, gen = run_alplib(photon_flux, ma_MeV, coupling_GeV, n_samples)
+    if len(flux_obj.axion_energy) == 0:
+        return 0.0
+    p41, p42, wgts = gen.simulate_decay_4vectors(
+        days_exposure=EXPOSURE_DAYS, n_samples=n_decay_samples)
+    if len(wgts) == 0:
+        return 0.0
+    wgts = np.asarray(wgts)
+    accept = transverse_acceptance_mask(p41, p42, det_dist_m=DET_DIST_M)
+    esum = np.array([p1.energy() + p2.energy() for p1, p2 in zip(p41, p42)])
+    sel = accept & (esum >= threshold_MeV)
+    return float(wgts[sel].sum())
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -278,11 +314,11 @@ def transverse_acceptance_mask(p41_list, p42_list,
     and return a boolean array marking pairs where BOTH photons land inside the
     calorimeter face (|x| ≤ half_x, |y| ≤ half_y).
 
-    alplib's `decay_axion_weight` includes only the longitudinal survival ×
-    decay-in-detector probability and (for isotropic sources) a 4π solid-angle
-    factor.  It does NOT check whether each γ trajectory actually hits the
-    calorimeter face — many decays of soft ALPs are wide-angle and miss the
-    detector entirely.  This function applies that missing geometric cut.
+    alplib's `decay_axion_weight` (as used here, propagate(is_isotropic=False))
+    includes only the longitudinal survival × decay-in-detector probability.
+    It does NOT check whether each γ trajectory actually hits the calorimeter
+    face — many decays of soft ALPs are wide-angle and miss the detector
+    entirely.  This function IS the geometric acceptance.
 
     Approximations:
       • Decay vertex placed at the target centre (z = vertex_z_m, default 0).
@@ -555,7 +591,9 @@ def plot_opening_angles(results, out_dir="plots", overlay_masses=None):
 
     ax_in.set_xlabel("Opening angle (degrees)")
     ax_in.set_ylabel("Weighted events / bin")
-    ax_in.set_title("Both γ on calorimeter face (12×12 cm² @ 47 cm)")
+    ax_in.set_title(f"Both γ on calorimeter face "
+                    f"({DET_HALF_X_M*200:.0f}×{DET_HALF_Y_M*200:.0f} cm² "
+                    f"@ {DET_DIST_M*100:.0f} cm)")
     ax_in.set_yscale("log")
     ax_in.legend(fontsize=7)
     ax_in.grid(True, which='both', alpha=0.3)
