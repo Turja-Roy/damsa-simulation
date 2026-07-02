@@ -21,7 +21,10 @@ public:
         emExtra->GammaNuclear(true);       // γ + N → π⁰ + X  (critical for your use case)
         emExtra->ElectroNuclear(true);     // e⁻ + N → e⁻ + π⁰ + X
         emExtra->MuonNuclear(true);        // minor contribution, good to have
-        RegisterPhysics(emExtra);
+        // FTFP_BERT already registers a G4EmExtraPhysics; RegisterPhysics()
+        // rejects a second constructor of the same physics type, silently
+        // dropping the flags above. ReplacePhysics swaps the existing one.
+        ReplacePhysics(emExtra);
     }
     // DamsaPhysicsList() : QBBC() {}
     virtual ~DamsaPhysicsList() {}
