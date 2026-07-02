@@ -2,6 +2,8 @@
 #include "construction.h"
 #include "pi0DecayData.h"
 
+#include <algorithm>
+
 #include "G4Material.hh"
 #include "G4Element.hh"
 #include "G4VisAttributes.hh"
@@ -80,7 +82,10 @@ G4VPhysicalVolume* DamsaDetectorConstruction::Construct()
 
     // World must contain target, VDC, magnet, and ECAL — always use 2 m half-length.
     G4double worldSizeZ = 2.0*m;
-    auto* solidWorld = new G4Box("solidWorld", 0.2*m, 0.2*m, worldSizeZ);
+    // Transverse half-size follows the widest runtime-tunable element (the calo
+    // via /damsa/setCaloSizeXY) so large scans cannot poke through the world.
+    G4double worldHalfXY = std::max(0.2*m, fCaloSizeXY/2. + 5.*cm);
+    auto* solidWorld = new G4Box("solidWorld", worldHalfXY, worldHalfXY, worldSizeZ);
     auto* logicWorld = new G4LogicalVolume(solidWorld, fMatAir, "logicWorld");
     auto* physWorld = new G4PVPlacement(0, G4ThreeVector(0., 0., 0.), logicWorld, "physWorld", 0, false, 0, true);
 
@@ -166,8 +171,10 @@ void DamsaDetectorConstruction::BuildVacuumChamber(G4LogicalVolume* worldLV, G4d
     new G4PVPlacement(0, G4ThreeVector(0., 0., endCapLocalBackZ), logicEndCapBack, "physEndCapBack", logicChamberVacuum, false, 1, true);
 
     // Target exit scoring volume (placed inside vacuum chamber, after front end cap)
-    // Target rear face is at zPos (current value), scoring plane just after front end cap
-    G4double scoringZ_local = endCapLocalFrontZ + fChamberWallThickness/2.;  // Just after front end cap
+    // Target rear face is at zPos (current value), scoring plane just after front end cap.
+    // Offset by the plane's own half-thickness (0.1 mm) so it does not overlap
+    // the end cap (its front face is flush with the cap's back face).
+    G4double scoringZ_local = endCapLocalFrontZ + fChamberWallThickness/2. + 0.1*mm;
     
     // Circular scoring plane matching chamber inner radius to capture all particles entering decay chamber
     auto* solidScoringTarget = new G4Tubs("solidScoringTarget", 0., fChamberInnerRadius, 0.1*mm, 0., 360.*deg);
@@ -278,11 +285,14 @@ void DamsaDetectorConstruction::BuildCalorimeter(G4LogicalVolume* worldLV, G4dou
     scoringEntranceVis->SetForceSolid(true);
     fLogicScoringCaloEntrance->SetVisAttributes(scoringEntranceVis);
 
-    new G4PVPlacement(0, G4ThreeVector(0., 0., fCaloEntranceZ),
+    // Centre the plane half a thickness downstream of fCaloEntranceZ: the magnet
+    // hollow ends exactly at fCaloEntranceZ, so centring the plane there would
+    // overlap the hollow by scoringHalfThickness.
+    new G4PVPlacement(0, G4ThreeVector(0., 0., fCaloEntranceZ + scoringHalfThickness),
                       fLogicScoringCaloEntrance, "physScoringCaloEntrance",
                       worldLV, false, 0, true);
 
-    G4double ecalFrontZ  = fCaloEntranceZ + scoringHalfThickness;
+    G4double ecalFrontZ  = fCaloEntranceZ + 2.*scoringHalfThickness;
     G4double ecalCenterZ = ecalFrontZ + ecalDepth / 2.;
 
     G4cout << "ECAL front face absolute Z: " << ecalFrontZ/cm  << " cm" << G4endl;
@@ -343,12 +353,13 @@ void DamsaDetectorConstruction::BuildCalorimeter(G4LogicalVolume* worldLV, G4dou
     scoringExitVis->SetForceSolid(true);
     fLogicScoringCaloExit->SetVisAttributes(scoringExitVis);
 
-    G4double caloExitZ = fCaloEntranceZ + scoringHalfThickness + ecalDepth + 0.1*mm + scoringHalfThickness;
+    G4double ecalBackZ = ecalFrontZ + ecalDepth;
+    G4double caloExitZ = ecalBackZ + 0.1*mm + scoringHalfThickness;
     new G4PVPlacement(0, G4ThreeVector(0., 0., caloExitZ),
                       fLogicScoringCaloExit, "physScoringCaloExit",
                       worldLV, false, 0, true);
 
-    G4cout << "ECAL back face absolute Z:      " << (fCaloEntranceZ + scoringHalfThickness + ecalDepth)/cm
+    G4cout << "ECAL back face absolute Z:      " << ecalBackZ/cm
            << " cm" << G4endl;
     G4cout << "Calo exit scoring absolute Z:   " << caloExitZ/cm << " cm" << G4endl;
 }
