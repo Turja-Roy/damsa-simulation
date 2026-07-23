@@ -52,7 +52,7 @@ from scripts.pipeline.alp_signal_pipeline import (
     bethe_heitler_spectrum,
     load_geant4_brems_flux,
     run_alplib,
-    BEAM_ENERGY_MEV, DET_DIST_M, DET_LENGTH_M, DET_AREA_M2, EXPOSURE_DAYS,
+    BEAM_ENERGY_MEV, DET_DIST_M, DET_AREA_M2, EXPOSURE_DAYS,
 )
 
 MASS_GRID_MEV = np.array([10, 20, 50, 100, 200, 500])
