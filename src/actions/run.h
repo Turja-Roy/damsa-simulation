@@ -64,7 +64,8 @@ void DamsaRunAction::EndOfRunAction(const G4Run* run) {
         // flux. In Level A this equals nEvents (one electron per event).
         const G4double nElectrons =
             static_cast<G4double>(DamsaConfig::gElectronsFired.load());
-        DamsaFluxCollector::Instance()->WriteBremsPhotonFluxCSV(prefix + "brems_photon_flux_target.csv");
+        // Raw per-photon brems output removed: the spectrum is histogrammed at
+        // record time (see FluxData.h) and only the binned flux is written.
         DamsaFluxCollector::Instance()->WriteAlplibFlux(prefix + "alplib_photon_flux_exit.csv", nElectrons, beamCurrent);
         DamsaFluxCollector::Instance()->WriteAlplibBremsFlux(prefix + "alplib_brems_flux.csv", nElectrons, beamCurrent);
     }

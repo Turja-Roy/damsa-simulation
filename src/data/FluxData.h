@@ -62,7 +62,6 @@ public:
     // Export functions
     void WriteCSV(const G4String& filename) const;
     void WritePhotonFluxCSV(const G4String& filename) const;
-    void WriteBremsPhotonFluxCSV(const G4String& filename) const;
     void WriteBackgroundCSV(const G4String& filename) const;
     void WriteCaloFaceCSV(const G4String& filename) const;
     
@@ -81,7 +80,7 @@ public:
     
     // Statistics
     G4int GetPhotonCount() const { return fPhotons.size(); }
-    G4int GetBremsPhotonCount() const { return fBremsPhotons.size(); }
+    G4long GetBremsPhotonCount() const { return fBremsCount; }
     G4int GetNeutronCount() const;
     G4int GetTotalParticleCount() const { return fAllParticles.size(); }
     G4int GetCaloFaceCount() const { return fCaloFaceParticles.size(); }
@@ -91,7 +90,6 @@ public:
     
     // Access raw data (for ROOT ntuple filling)
     const std::vector<FluxParticle>& GetPhotons() const { return fPhotons; }
-    const std::vector<FluxParticle>& GetBremsPhotons() const { return fBremsPhotons; }
     const std::vector<FluxParticle>& GetAllParticles() const { return fAllParticles; }
     const std::vector<FluxParticle>& GetCaloFaceParticles() const { return fCaloFaceParticles; }
     
@@ -102,7 +100,13 @@ private:
     static G4Mutex fMutex;
 
     std::vector<FluxParticle> fPhotons;        // Photons at target exit
-    std::vector<FluxParticle> fBremsPhotons;   // Bremsstrahlung photons inside target (for alplib signal)
+    // Bremsstrahlung photons inside the target are histogrammed at record
+    // time rather than stored per photon: at 1e6 primary electrons the raw
+    // vector required ~70 GB of memory (raw CSV ~145 GB), while all later
+    // analysis stages read only the 1-MeV-binned spectrum written to
+    // alplib_brems_flux.csv. Key = 1-MeV bin index, value = weighted count.
+    std::map<G4int, G4long> fBremsSpectrum;
+    G4long fBremsCount = 0;                    // total brems photons recorded
     std::vector<FluxParticle> fAllParticles;   // All particles (for background)
     std::vector<FluxParticle> fCaloFaceParticles;  // All particles at CaloEntrance
 };
@@ -189,7 +193,8 @@ inline void DamsaFluxCollector::RecordCaloFaceParticle(G4int pdgCode, G4double e
 inline void DamsaFluxCollector::Reset()
 {
     fPhotons.clear();
-    fBremsPhotons.clear();
+    fBremsSpectrum.clear();
+    fBremsCount = 0;
     fAllParticles.clear();
     fCaloFaceParticles.clear();
 }
@@ -418,70 +423,33 @@ inline void DamsaFluxCollector::WriteAlplibFlux(const G4String& filename, G4doub
     G4cout << "  " << spectrum.size() << " energy bins, " << fPhotons.size() << " total photons" << G4endl;
 }
 
-inline void DamsaFluxCollector::RecordBremsPhoton(G4double energy, G4double time,
-                                                   G4double x, G4double y, G4double z,
-                                                   G4double px, G4double py, G4double pz,
-                                                   G4int trackID, G4int eventID, G4double weight)
+inline void DamsaFluxCollector::RecordBremsPhoton(G4double energy, G4double /*time*/,
+                                                   G4double /*x*/, G4double /*y*/, G4double /*z*/,
+                                                   G4double /*px*/, G4double /*py*/, G4double /*pz*/,
+                                                   G4int /*trackID*/, G4int /*eventID*/, G4double weight)
 {
-    FluxParticle p;
-    p.energy = energy;
-    p.time = time;
-    p.x = x;
-    p.y = y;
-    p.z = z;
-    p.px = px;
-    p.py = py;
-    p.pz = pz;
-    p.weight = weight;
-    p.pdgCode = 22;  // Photon PDG code
-    p.trackID = trackID;
-    p.eventID = eventID;
+    // Histogram at record time (1-MeV bins); per-photon storage is not
+    // retained — see the fBremsSpectrum declaration for the rationale.
+    const G4int binIndex = static_cast<G4int>(energy / (1.0*MeV));
     G4AutoLock lock(&fMutex);
-    fBremsPhotons.push_back(p);
-}
-
-inline void DamsaFluxCollector::WriteBremsPhotonFluxCSV(const G4String& filename) const
-{
-    mkdir("output", 0755);
-    std::string fullPath = "output/" + filename;
-    std::ofstream outFile(fullPath);
-    
-    if (!outFile.is_open()) {
-        G4cout << "ERROR: Could not open file " << fullPath << " for writing!" << G4endl;
-        return;
-    }
-    
-    outFile << "energy_MeV,time_ns,x_mm,y_mm,z_mm,px,py,pz,weight,trackID,eventID" << std::endl;
-    
-    for (const auto& p : fBremsPhotons) {
-        outFile << std::scientific << std::setprecision(6)
-                << p.energy/MeV << ","
-                << p.time/ns << ","
-                << p.x/mm << ","
-                << p.y/mm << ","
-                << p.z/mm << ","
-                << p.px << ","
-                << p.py << ","
-                << p.pz << ","
-                << p.weight << ","
-                << p.trackID << ","
-                << p.eventID << std::endl;
-    }
-    
-    outFile.close();
-    G4cout << "Brems photon flux written to: " << fullPath << " (" << fBremsPhotons.size() << " photons)" << G4endl;
+    fBremsSpectrum[binIndex] += static_cast<G4long>(weight);
+    ++fBremsCount;
 }
 
 inline std::map<G4double, G4int> DamsaFluxCollector::GetBinnedBremsSpectrum(G4double binWidth) const
 {
+    // Re-bin the internal 1-MeV histogram. For binWidth = 1 MeV (the only
+    // width used in practice) this reproduces the per-photon binning exactly;
+    // wider bins must be integer multiples of 1 MeV.
     std::map<G4double, G4int> spectrum;
-    
-    for (const auto& p : fBremsPhotons) {
-        G4int binIndex = static_cast<G4int>(p.energy / binWidth);
-        G4double binCenter = (binIndex + 0.5) * binWidth;
-        spectrum[binCenter] += static_cast<G4int>(p.weight);
+
+    for (const auto& bin : fBremsSpectrum) {
+        const G4double energy = (bin.first + 0.5) * (1.0*MeV);
+        const G4int binIndex = static_cast<G4int>(energy / binWidth);
+        const G4double binCenter = (binIndex + 0.5) * binWidth;
+        spectrum[binCenter] += static_cast<G4int>(bin.second);
     }
-    
+
     return spectrum;
 }
 
@@ -509,7 +477,7 @@ inline void DamsaFluxCollector::WriteAlplibBremsFlux(const G4String& filename, G
     outFile << "# Beam current: " << beamCurrent*1e6 << " uA" << std::endl;
     outFile << "# Primary electrons simulated: " << nPrimaries << std::endl;
     outFile << "# Scale factor: " << scaleFactor << std::endl;
-    outFile << "# Total brems photons recorded: " << fBremsPhotons.size() << std::endl;
+    outFile << "# Total brems photons recorded: " << fBremsCount << std::endl;
     outFile << "# Format: energy_MeV, rate_per_second" << std::endl;
     outFile << "#" << std::endl;
     
@@ -525,7 +493,7 @@ inline void DamsaFluxCollector::WriteAlplibBremsFlux(const G4String& filename, G
     
     outFile.close();
     G4cout << "Alplib brems flux file written to: " << fullPath << G4endl;
-    G4cout << "  " << spectrum.size() << " energy bins, " << fBremsPhotons.size() << " total brems photons" << G4endl;
+    G4cout << "  " << spectrum.size() << " energy bins, " << fBremsCount << " total brems photons" << G4endl;
 }
 
 #endif

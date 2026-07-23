@@ -13,6 +13,12 @@ void WriteEvolutionHistograms(TFile* rootFile, std::map<G4String, DamsaLocationD
 DamsaAnalysis* DamsaAnalysis::fInstance = nullptr;
 G4Mutex DamsaAnalysis::fMutex;
 
+// Per-thread, per-event track-dedup scratch. Track IDs are unique only within
+// a thread's current event, so this must be thread-local, not in the shared
+// singleton (shared -> find/insert/clear race across threads = segfault).
+// location -> trackIDs already recorded.
+static thread_local std::map<G4String, std::set<G4int>> tlRecordedTracks;
+
 DamsaFluxCollector* DamsaFluxCollector::fInstance = nullptr;
 G4Mutex DamsaFluxCollector::fMutex;
 
@@ -42,25 +48,21 @@ DamsaAnalysis::~DamsaAnalysis()
 
 G4bool DamsaAnalysis::WasTrackRecorded(G4int trackID, const G4String& location)
 {
-    auto it = fLocations.find(location);
-    if (it != fLocations.end()) {
-        return it->second.WasTrackRecorded(trackID);
-    }
-    return false;
+    // Thread-local lookup, no lock needed.
+    return tlRecordedTracks[location].count(trackID) != 0;
 }
 
 void DamsaAnalysis::ResetEventTracking()
 {
-    G4AutoLock lock(&fMutex);
-    for (auto& pair : fLocations) {
-        pair.second.ResetEventTracking();
-    }
+    // Thread-local, no lock needed.
+    for (auto& pair : tlRecordedTracks) pair.second.clear();
 }
 
 void DamsaAnalysis::RecordParticle(const G4String& particleName, G4double energy,
                                    const G4String& location, G4double angle,
                                    G4int trackID, G4bool isPrimary)
 {
+    tlRecordedTracks[location].insert(trackID);  // thread-local dedup
     G4AutoLock lock(&fMutex);
     auto it = fLocations.find(location);
     if (it != fLocations.end()) {

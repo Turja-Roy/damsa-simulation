@@ -5,10 +5,11 @@
 // Reads alplib-exported decay photon CSV (γγ pairs from a→γγ) and fires them
 // as primary particles into Geant4 for full detector response simulation.
 //
-// CSV format (produced by scripts/alp_signal_pipeline.py):
-//   E1_MeV,px1,py1,pz1,E2_MeV,px2,py2,pz2,weight
-// where px/py/pz are unit momentum direction components and weight is
-// the event rate in events/s for that decay pair.
+// CSV format (produced by scripts/pipeline/alp_signal_pipeline.py):
+//   E1_MeV,px1,py1,pz1,E2_MeV,px2,py2,pz2,weight[,decay_z_m]
+// where px/py/pz are momentum components, weight is events/day for that
+// decay pair, and decay_z_m (optional) is the sampled ALP decay-vertex z in
+// metres downstream of the target centre (legacy 9-column files: 0).
 //
 // Usage in action.h Build():
 //   SetUserAction(new DamsaALPDecayGenerator("alp_decay_photons_ma100MeV.csv"));
@@ -32,7 +33,9 @@ struct ALPDecayEvent {
     // γ1 and γ2 4-vectors: (E_MeV, px_dir, py_dir, pz_dir) each
     double E1, px1, py1, pz1;
     double E2, px2, py2, pz2;
-    double weight;  // events/day (from alplib)
+    double weight;   // events/day (from alplib)
+    double decayZ_m; // decay-vertex z offset from target centre [m]
+                     // (optional 10th CSV column; 0 = fire from target centre)
 };
 
 class DamsaALPDecayGenerator : public G4VUserPrimaryGeneratorAction
@@ -84,6 +87,12 @@ public:
         // Thread-local: stepping for this event runs on this same thread.
         // (row weight divided by refire factor to preserve total)
         fgCurrentEventWeight = ev.weight / G4double(fRefireFactor);
+
+        // Per-event decay vertex: target centre + sampled ALP flight distance
+        // (decay_z_m column; 0 for legacy 9-column CSVs). ALPs fly along +z
+        // (alplib fires theta_ALP = 0), so the vertex stays on the beam axis.
+        fParticleGun->SetParticlePosition(
+            G4ThreeVector(0., 0., fVertexZ + ev.decayZ_m * m));
 
         // Fire γ1
         fParticleGun->SetParticleEnergy(ev.E1 * MeV);
@@ -150,6 +159,9 @@ private:
             ALPDecayEvent ev;
             if (iss >> ev.E1 >> ev.px1 >> ev.py1 >> ev.pz1
                     >> ev.E2 >> ev.px2 >> ev.py2 >> ev.pz2 >> ev.weight) {
+                // Optional 10th column: decay-vertex z [m from target centre].
+                // Legacy 9-column CSVs fall back to the fixed vertex.
+                if (!(iss >> ev.decayZ_m)) ev.decayZ_m = 0.0;
                 // Skip physically meaningless rows: alplib writes zero-weight
                 // entries for grid bins with no ALP production (low-E for heavy
                 // masses, high-E for light masses). Keeping them only wastes
