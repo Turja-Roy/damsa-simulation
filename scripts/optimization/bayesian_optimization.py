@@ -1,26 +1,11 @@
 #!/usr/bin/env python3
 """
-Bayesian Optimization Module for DAMSA Using BoTorch
+Multi-objective Bayesian optimization (BoTorch, qEHVI) of the DAMSA
+parameter space; hands off to NSGA-II for Pareto front refinement once
+enough data is collected.
 
-This module implements multi-objective Bayesian optimization using BoTorch
-for efficient exploration of the DAMSA parameter space.
-
-Key Features:
-- Multi-objective optimization with qEHVI (Expected Hypervolume Improvement)
-- Constraint handling via constrained acquisition functions
-- Warm-starting from prior evaluations
-- Integration with Geant4 runner and objective functions
-
-Decision Variables (5 total):
-    - target_z: Target thickness (cm)
-    - target_xy: Target width and height (cm) - square cross-section
-    - gap: Vacuum decay chamber length (cm)
-    - t_min: Timing window start (ns)
-    - t_max: Timing window end (ns)
-
-Strategy:
-1. Initial phase: Use Bayesian optimization for efficient exploration
-2. After sufficient data: Hand off to NSGA-II for Pareto front refinement
+Decision variables (5): target_z, target_xy (cm, square target cross-section),
+gap (VDC length, cm), t_min, t_max (timing window, ns).
 """
 
 import numpy as np
@@ -199,20 +184,7 @@ class MultiObjectiveBayesianOptimizer:
         return X_normalized * (self.ub - self.lb) + self.lb
     
     def _evaluate(self, X: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Evaluate objective and constraint functions.
-        
-        Parameters
-        ----------
-        X : torch.Tensor
-            Normalized input tensor of shape (n, d)
-            Variables: [target_z, target_xy, gap, t_min, t_max]
-            
-        Returns
-        -------
-        Tuple[torch.Tensor, torch.Tensor]
-            (objectives, constraints) tensors
-        """
+        """Evaluate objective and constraint functions."""
         X_orig = self._unnormalize(X)
         n_points = X.shape[0]
         
@@ -266,19 +238,7 @@ class MultiObjectiveBayesianOptimizer:
         return Y, C
     
     def _generate_initial_data(self, n_samples: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Generate initial data using Sobol sampling.
-        
-        Parameters
-        ----------
-        n_samples : int
-            Number of initial samples
-            
-        Returns
-        -------
-        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
-            (X, Y, C) tensors
-        """
+        """Generate initial data using Sobol sampling."""
         if self.verbose:
             print(f"Generating {n_samples} initial samples...")
         
@@ -294,21 +254,7 @@ class MultiObjectiveBayesianOptimizer:
         return X, Y, C
     
     def _build_models(self, X: torch.Tensor, Y: torch.Tensor) -> ModelListGP:
-        """
-        Build GP models for each objective.
-        
-        Parameters
-        ----------
-        X : torch.Tensor
-            Training inputs
-        Y : torch.Tensor
-            Training outputs
-            
-        Returns
-        -------
-        ModelListGP
-            List of GP models, one per objective
-        """
+        """Build GP models for each objective."""
         models = []
         
         for i in range(Y.shape[-1]):
@@ -332,23 +278,7 @@ class MultiObjectiveBayesianOptimizer:
                                    model: ModelListGP,
                                    Y_train: torch.Tensor,
                                    C_train: torch.Tensor) -> qExpectedHypervolumeImprovement:
-        """
-        Create qEHVI acquisition function with constraint handling.
-        
-        Parameters
-        ----------
-        model : ModelListGP
-            GP model for objectives
-        Y_train : torch.Tensor
-            Training objective values
-        C_train : torch.Tensor
-            Training constraint values
-            
-        Returns
-        -------
-        qExpectedHypervolumeImprovement
-            Acquisition function
-        """
+        """Create qEHVI acquisition function with constraint handling."""
         # Filter to feasible points for Pareto front
         feasible_mask = (C_train <= self.bo_config.constraint_threshold).all(dim=-1)
         
@@ -381,21 +311,7 @@ class MultiObjectiveBayesianOptimizer:
     def _optimize_acquisition(self, 
                               acq_func,
                               batch_size: int = 1) -> torch.Tensor:
-        """
-        Optimize acquisition function to get next candidates.
-        
-        Parameters
-        ----------
-        acq_func : AcquisitionFunction
-            Acquisition function to optimize
-        batch_size : int
-            Number of candidates to generate
-            
-        Returns
-        -------
-        torch.Tensor
-            Next candidates to evaluate
-        """
+        """Optimize acquisition function to get next candidates."""
         candidates, _ = optimize_acqf(
             acq_function=acq_func,
             bounds=self.bounds,
@@ -408,14 +324,7 @@ class MultiObjectiveBayesianOptimizer:
         return candidates
     
     def optimize(self) -> Dict[str, Any]:
-        """
-        Run Bayesian optimization loop.
-        
-        Returns
-        -------
-        dict
-            Optimization results including Pareto front
-        """
+        """Run Bayesian optimization loop."""
         start_time = time.time()
         
         if self.verbose:
@@ -608,14 +517,7 @@ class MultiObjectiveBayesianOptimizer:
             print(f"Results saved to: {self.output_dir}")
     
     def load_checkpoint(self, path: str):
-        """
-        Load checkpoint to continue optimization.
-        
-        Parameters
-        ----------
-        path : str
-            Path to checkpoint JSON file
-        """
+        """Load checkpoint to continue optimization."""
         with open(path, 'r') as f:
             checkpoint = json.load(f)
         
@@ -650,22 +552,6 @@ def warm_start_from_history(history: List[Dict],
     Create training data from prior evaluation history.
     
     Useful for warm-starting BO from previous NSGA-II or grid search runs.
-    
-    Parameters
-    ----------
-    history : List[Dict]
-        List of evaluation records with 'X' and 'Y' keys
-    opt_config : OptimizationConfig
-        Problem configuration
-    device : torch.device
-        Device for tensors
-    dtype : torch.dtype
-        Data type for tensors
-        
-    Returns
-    -------
-    Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
-        (X, Y, C) normalized tensors
     """
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -707,27 +593,7 @@ def run_bayesian_optimization(
     warm_start_history: List[Dict] = None,
     verbose: bool = True
 ) -> Dict[str, Any]:
-    """
-    Convenience function to run Bayesian optimization.
-    
-    Parameters
-    ----------
-    opt_config : OptimizationConfig
-        Problem configuration
-    bo_config : BOConfig
-        BO configuration
-    runner : Geant4Runner or MockGeant4Runner
-        Simulation runner
-    warm_start_history : List[Dict], optional
-        Prior evaluations for warm-starting
-    verbose : bool
-        Print progress
-        
-    Returns
-    -------
-    dict
-        Optimization results
-    """
+    """Convenience function to run Bayesian optimization."""
     if not BOTORCH_AVAILABLE:
         raise ImportError("BoTorch is required. Install with: pip install botorch")
     

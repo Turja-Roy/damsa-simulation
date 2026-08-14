@@ -23,11 +23,6 @@ by extra W material. The dominant process at 1–50 MeV in W is pair production
 Usage
 -----
   python scripts/project_target_length.py
-  python scripts/project_target_length.py \\
-      --particles output/all_particles_target_exit.csv \\
-      --flux      output/alplib_brems_flux.csv \\
-      --n-primaries 100000 \\
-      --output-dir output/target_projection
 """
 
 import argparse

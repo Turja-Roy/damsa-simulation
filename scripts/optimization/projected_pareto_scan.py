@@ -18,7 +18,6 @@ Output:
   plots_proj/pareto_gap_curves.png    — signal & background vs gap
 
 Usage:
-  python scripts/projected_pareto_scan.py
   python scripts/projected_pareto_scan.py --n-events-small 2000 --gap-min 25 --gap-max 70
 """
 

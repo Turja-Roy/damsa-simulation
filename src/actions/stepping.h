@@ -41,7 +41,6 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
     G4int trackID = track->GetTrackID();
     G4int eventID = G4EventManager::GetEventManager()->GetConstCurrentEvent()->GetEventID();
     
-    // Get event weight: from ALP generator in ALPInject mode, 1.0 otherwise
     G4double evtWeight = 1.0;
     if (DamsaConfig::gRunMode == DamsaConfig::RunMode::ALPInject) {
         DamsaALPDecayGenerator* alpGen = DamsaALPDecayGenerator::Instance();
@@ -140,11 +139,8 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
     }
 
     G4StepStatus stepStatus = postStepPoint->GetStepStatus();
-
-    // Only record particles when they cross a geometry boundary
     if(stepStatus != fGeomBoundary) return;
 
-    // Get particle properties
     G4double energy = track->GetKineticEnergy();
     G4bool isPrimary = (track->GetParentID() == 0);
     G4int pdgCode = track->GetDefinition()->GetPDGEncoding();

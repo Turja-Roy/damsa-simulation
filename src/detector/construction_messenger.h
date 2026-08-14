@@ -10,13 +10,6 @@
 //
 // All commands must be issued BEFORE /run/initialize so that Construct()
 // picks up the new values.
-//
-// Example usage in a macro:
-//   /damsa/setTargetLength 15 cm
-//   /damsa/setVDCLength 35 cm
-//   /damsa/setCaloSizeXY 16 cm
-//   /run/initialize
-//   /run/beamOn 100000
 
 #include "G4UImessenger.hh"
 #include "G4UIcmdWithADoubleAndUnit.hh"

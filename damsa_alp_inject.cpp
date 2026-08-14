@@ -9,11 +9,6 @@
 // Usage:
 //     ./damsa_alp_inject <decay_csv> [macro.mac] [refire_factor]
 //
-// Examples:
-//     ./damsa_alp_inject output/alp_decay_photons_ma100MeV.csv run_alp.mac
-//     ./damsa_alp_inject output/alp_decay_photons_ma50MeV.csv run_alp.mac 5
-//     ./damsa_alp_inject output/alp_decay_photons_ma50MeV.csv
-//
 // If no macro is given, an interactive UI session opens.
 // The refire_factor controls how many times each input row is re-fired
 // (default: 1). Row weights are divided by this factor. The total beamOn

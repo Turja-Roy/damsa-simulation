@@ -171,20 +171,7 @@ class SeparabilityAnalysis:
     
     def __init__(self, alp_photons: ALPDecayPhotons, bkg_energies: np.ndarray,
                  bkg_angles: np.ndarray, bkg_weights: np.ndarray = None):
-        """
-        Initialize separability analysis.
-        
-        Parameters
-        ----------
-        alp_photons : ALPDecayPhotons
-            ALP decay photon kinematics from alplib
-        bkg_energies : np.ndarray
-            Background photon energies in MeV (from Geant4)
-        bkg_angles : np.ndarray
-            Background photon angles in radians (from Geant4)
-        bkg_weights : np.ndarray, optional
-            Background photon weights (default: unit weights)
-        """
+        """Initialize separability analysis."""
         self.alp = alp_photons
         self.bkg_energies = bkg_energies
         self.bkg_angles = bkg_angles
@@ -199,16 +186,6 @@ class SeparabilityAnalysis:
         - Decay kinematics (isotropic in ALP rest frame, boosted to lab)
         
         Background bremsstrahlung is very forward-peaked.
-        
-        Parameters
-        ----------
-        angle_cut_deg : float
-            Angular cut value in degrees
-            
-        Returns
-        -------
-        dict
-            Separation metrics
         """
         angle_cut_rad = np.radians(angle_cut_deg)
         
@@ -248,19 +225,7 @@ class SeparabilityAnalysis:
         }
     
     def energy_separation_metric(self, energy_cut_MeV: float = 100.0) -> Dict[str, float]:
-        """
-        Calculate energy-based separation between signal and background.
-        
-        Parameters
-        ----------
-        energy_cut_MeV : float
-            Energy threshold cut in MeV
-            
-        Returns
-        -------
-        dict
-            Separation metrics
-        """
+        """Calculate energy-based separation between signal and background."""
         # Signal
         sig_energies = self.alp.all_energies
         sig_weights = self.alp.all_weights
@@ -292,14 +257,7 @@ class SeparabilityAnalysis:
         }
     
     def optimal_cuts(self, n_angle_points: int = 20, n_energy_points: int = 20) -> Dict[str, Any]:
-        """
-        Find optimal cuts for maximum separation power.
-        
-        Returns
-        -------
-        dict
-            Optimal cuts and their performance
-        """
+        """Find optimal cuts for maximum separation power."""
         # Scan angle cuts
         angle_cuts = np.linspace(0.5, 30, n_angle_points)
         best_angle_cut = 5.0
@@ -336,21 +294,7 @@ class SeparabilityAnalysis:
         }
     
     def compute_roc_curve(self, variable: str = 'angle', n_points: int = 50) -> Dict[str, np.ndarray]:
-        """
-        Compute ROC curve for signal vs background separation.
-        
-        Parameters
-        ----------
-        variable : str
-            'angle' or 'energy'
-        n_points : int
-            Number of cut points to evaluate
-            
-        Returns
-        -------
-        dict
-            ROC curve data: signal_efficiency, background_rejection, auc
-        """
+        """Compute ROC curve for signal vs background separation."""
         if variable == 'angle':
             cuts = np.linspace(0.1, 45, n_points)
             sig_vals = self.alp.all_thetas
@@ -467,21 +411,7 @@ class ObjectiveFunctions:
     def calculate(self, sim_result, 
                   t_min: float = 0.0, 
                   t_max: float = 10.0) -> ObjectiveValues:
-        """
-        Calculate all objective values from simulation result.
-        
-        Parameters
-        ----------
-        sim_result : SimulationResult
-            Result from Geant4Runner
-        t_min, t_max : float
-            Timing window in ns
-            
-        Returns
-        -------
-        ObjectiveValues
-            Container with all objective values
-        """
+        """Calculate all objective values from simulation result."""
         # 1. Calculate signal rate
         signal = self._calculate_signal(sim_result, t_min, t_max)
         
@@ -605,18 +535,6 @@ class ObjectiveFunctions:
         
         Uses alplib's simulate_decay_4vectors() to get the kinematics
         of photons from ALP -> gamma gamma decay.
-        
-        Parameters
-        ----------
-        sim_result : SimulationResult
-            Result from Geant4Runner (provides photon flux at target)
-        n_samples : int
-            Number of decay samples per ALP (for statistical coverage)
-            
-        Returns
-        -------
-        ALPDecayPhotons or None
-            Container with decay photon kinematics, or None if alplib unavailable
         """
         if not ALPLIB_AVAILABLE:
             print("Warning: alplib not available for decay photon extraction")
@@ -704,21 +622,7 @@ class ObjectiveFunctions:
             return None
     
     def compute_separability(self, sim_result, n_samples: int = 10) -> Optional[SeparabilityAnalysis]:
-        """
-        Compute separability analysis between ALP signal and background photons.
-        
-        Parameters
-        ----------
-        sim_result : SimulationResult
-            Result from Geant4Runner
-        n_samples : int
-            Number of decay samples per ALP
-            
-        Returns
-        -------
-        SeparabilityAnalysis or None
-            Separability analysis object, or None if failed
-        """
+        """Compute separability analysis between ALP signal and background photons."""
         # Get ALP decay photons
         alp_photons = self.get_alp_decay_photons(sim_result, n_samples)
         if alp_photons is None:
@@ -947,25 +851,7 @@ def apply_timing_optimization(sim_result,
                                objective_func: ObjectiveFunctions,
                                t_range: Tuple[float, float] = (0, 100),
                                n_points: int = 50) -> Tuple[float, float, ObjectiveValues]:
-    """
-    Find optimal timing window for given geometry.
-    
-    Parameters
-    ----------
-    sim_result : SimulationResult
-        Geant4 simulation result
-    objective_func : ObjectiveFunctions
-        Objective function calculator
-    t_range : tuple
-        Range of timing values to scan
-    n_points : int
-        Number of grid points
-        
-    Returns
-    -------
-    tuple
-        (optimal_t_min, optimal_t_max, best_objectives)
-    """
+    """Find optimal timing window for given geometry."""
     best_fom = -np.inf
     best_t_min, best_t_max = 0, 10
     best_obj = None

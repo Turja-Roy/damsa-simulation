@@ -10,9 +10,6 @@ After running joint_pareto_scan.py for each target length, this script:
 
 Usage:
     python scripts/combine_pareto.py output/joint_pareto/Tz*_pareto.csv
-    python scripts/combine_pareto.py output/joint_pareto/Tz*_pareto.csv \\
-        --output output/global_pareto.csv \\
-        --plot-dir plots/global_pareto
 """
 
 import argparse

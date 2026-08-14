@@ -11,11 +11,7 @@ Four diagnostics:
 Saves all output to the angle_validation/ folder (this directory).
 
 Usage:
-    python angle_diagnostics.py [--flux path/to/alplib_brems_flux.csv]
-                                [--analytic]
-                                [--nprimaries N]
-                                [--nevents N]     # events to print (default: all)
-                                [--nsamples N]    # MC samples per mass (default 5000)
+    python angle_diagnostics.py --flux path/to/alplib_brems_flux.csv [--nevents N] [--nsamples N]
 """
 
 import sys

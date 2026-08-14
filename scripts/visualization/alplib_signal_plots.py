@@ -1,27 +1,11 @@
 #!/usr/bin/env python3
 """
-ALP Signal Visualization and Analysis Module for DAMSA Optimization
-
-This module provides comprehensive tools for ALP (Axion-Like Particle) signal
-calculations and visualization using alplib. It includes:
-
-1. Flux loading and conversion from Geant4 output to alplib format
-2. ALP signal calculation via Primakoff production
-3. Energy and angular distribution plotting
-4. Mass and coupling scans with sensitivity contours
-5. Comparison between different detector configurations
-
+ALP signal calculation and visualization using alplib: flux conversion,
+Primakoff production, energy/angular plots, mass-coupling sensitivity scans.
 REQUIRES alplib to be installed/available. No mock calculations.
 
 Usage:
-    # Single configuration analysis
-    python alplib_signal_plots.py --flux-file photon_flux.csv --alp-mass 100
-    
-    # With scaling for beam current
-    python alplib_signal_plots.py --flux-file photon_flux.csv --nprimaries 1000 --alp-mass 100
-    
-    # Full report with all plots
-    python alplib_signal_plots.py --flux-file photon_flux.csv --full-report
+    python alplib_signal_plots.py --flux-file photon_flux.csv --alp-mass 100 --full-report
 """
 
 import numpy as np
@@ -97,23 +81,7 @@ TARGET_ALP_ENERGY_MEV = 1000.0  # Assumed typical ALP energy from 8 GeV electron
 def calculate_proxy_mass(photon_energy_MeV: float,
                          target_alp_mass_MeV: float = TARGET_ALP_MASS_MEV,
                          target_alp_energy_MeV: float = TARGET_ALP_ENERGY_MEV) -> float:
-    """
-    Calculate proxy ALP mass that preserves opening angle.
-    
-    Parameters
-    ----------
-    photon_energy_MeV : float
-        Available photon energy from beam dump (MeV)
-    target_alp_mass_MeV : float
-        Target ALP mass to preserve opening angle for (MeV)
-    target_alp_energy_MeV : float
-        Assumed typical ALP energy in real scenario (MeV)
-    
-    Returns
-    -------
-    float
-        Proxy ALP mass in MeV that gives same opening angle
-    """
+    """Calculate proxy ALP mass that preserves opening angle."""
     gamma_target = target_alp_energy_MeV / target_alp_mass_MeV
     proxy_mass = photon_energy_MeV / gamma_target
     return proxy_mass
@@ -124,16 +92,6 @@ def get_default_proxy_mass(photon_energy_MeV: float = 80.0) -> float:
     Get default proxy mass for typical photon energies from tungsten dump.
     
     Default assumes target ALP scenario: m_a = 100 MeV at E_a = 1 GeV (γ = 10)
-    
-    Parameters
-    ----------
-    photon_energy_MeV : float
-        Typical photon energy from dump (default: 80 MeV)
-    
-    Returns
-    -------
-    float
-        Proxy ALP mass in MeV
     """
     return calculate_proxy_mass(photon_energy_MeV, TARGET_ALP_MASS_MEV, TARGET_ALP_ENERGY_MEV)
 
@@ -155,20 +113,6 @@ def load_flux_for_alplib(csv_path: str, n_primaries: int,
     
     This function reads the raw photon flux CSV from Geant4 simulation,
     bins the energies, and scales by beam current to get photons/second.
-    
-    Parameters
-    ----------
-    csv_path : str
-        Path to photon flux CSV (must have 'energy_MeV' or 'energy' column)
-    n_primaries : int
-        Number of primary electrons simulated
-    beam_current_uA : float
-        Beam current in microamperes (default: delivered LESA-Laser current ~0.0113)
-        
-    Returns
-    -------
-    np.ndarray
-        2D array [[energy_MeV, rate_per_second], ...] suitable for alplib
     """
     df = pd.read_csv(csv_path)
     
@@ -214,19 +158,7 @@ class ALPSignalVisualizer:
     """
     
     def __init__(self, output_dir: str = "alp_signal_plots"):
-        """
-        Initialize visualizer.
-        
-        Parameters
-        ----------
-        output_dir : str
-            Directory for output plots
-            
-        Raises
-        ------
-        ImportError
-            If alplib is not available
-        """
+        """Initialize visualizer."""
         check_alplib_available()
         
         self.output_dir = Path(output_dir)
@@ -241,19 +173,7 @@ class ALPSignalVisualizer:
         self.results = {}
         
     def load_photon_flux(self, flux_file: str) -> pd.DataFrame:
-        """
-        Load photon flux from Geant4 output.
-        
-        Parameters
-        ----------
-        flux_file : str
-            Path to flux CSV file
-            
-        Returns
-        -------
-        pd.DataFrame
-            Flux data
-        """
+        """Load photon flux from Geant4 output."""
         df = pd.read_csv(flux_file)
         
         # Expected columns: energy, theta, phi, x, y, z, weight
@@ -278,33 +198,7 @@ class ALPSignalVisualizer:
         coupling: float = 1e-3,
         detector_distance_m: float = 1.0
     ) -> Dict[str, Any]:
-        """
-        Calculate ALP signal using alplib.
-        
-        Parameters
-        ----------
-        flux_df : pd.DataFrame
-            Photon flux data
-        alp_mass_MeV : float
-            ALP mass in MeV
-        coupling : float
-            ALP-photon coupling g_aγγ in GeV^-1 (standard convention)
-            Note: alplib internally uses MeV^-1, so we convert.
-        detector_distance_m : float
-            Distance to detector in meters
-            
-        Returns
-        -------
-        dict
-            Signal calculation results
-            
-        Raises
-        ------
-        ImportError
-            If alplib is not available
-        RuntimeError
-            If alplib calculation fails
-        """
+        """Calculate ALP signal using alplib."""
         check_alplib_available()
         
         # Convert flux to alplib format
@@ -396,21 +290,7 @@ class ALPSignalVisualizer:
         result: Dict[str, Any],
         save: bool = True
     ) -> Any:
-        """
-        Plot energy distribution of ALP decay photons.
-        
-        Parameters
-        ----------
-        result : dict
-            ALP calculation result
-        save : bool
-            Save plot to file
-            
-        Returns
-        -------
-        Figure
-            Plot figure
-        """
+        """Plot energy distribution of ALP decay photons."""
         if ROOT_AVAILABLE:
             return self._plot_energy_root(result, save)
         elif MATPLOTLIB_AVAILABLE:
@@ -550,27 +430,7 @@ class ALPSignalVisualizer:
         coupling: float = 1e-3,
         save: bool = True
     ) -> Any:
-        """
-        Plot signal rate vs ALP mass.
-        
-        Parameters
-        ----------
-        flux_df : pd.DataFrame
-            Photon flux data
-        mass_range : tuple
-            Min and max ALP mass in MeV
-        n_points : int
-            Number of mass points
-        coupling : float
-            ALP-photon coupling
-        save : bool
-            Save plot
-            
-        Returns
-        -------
-        Figure
-            Plot figure
-        """
+        """Plot signal rate vs ALP mass."""
         masses = np.linspace(mass_range[0], mass_range[1], n_points)
         n_events = []
         
@@ -705,23 +565,7 @@ class ALPSignalVisualizer:
         alp_mass_MeV: float = 100.0,
         coupling: float = 1e-3
     ) -> Dict[str, Any]:
-        """
-        Generate full signal visualization report.
-        
-        Parameters
-        ----------
-        flux_file : str
-            Path to photon flux file
-        alp_mass_MeV : float
-            ALP mass
-        coupling : float
-            ALP coupling
-            
-        Returns
-        -------
-        dict
-            Report summary
-        """
+        """Generate full signal visualization report."""
         print(f"Generating ALP signal report...")
         print(f"  Mass: {alp_mass_MeV} MeV")
         print(f"  Coupling: {coupling}")

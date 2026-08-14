@@ -1,16 +1,7 @@
 #!/usr/bin/env python3
 """
-ROOT-Based Configuration Comparison Plots for DAMSA Optimization
-
-This module generates ROOT-format summary plots for comparing different
-detector configurations. It creates histograms and plots for:
-1. Photon energy distributions at different scoring planes
-2. Angular distributions
-3. Timing distributions
-4. Particle spectra (photons, neutrons, electrons)
-5. Configuration comparison overlays
-
-Outputs both ROOT files (.root) and PNG images for quick viewing.
+ROOT-format summary plots (energy/angular/timing spectra, config comparison
+overlays) for comparing DAMSA detector configurations. Outputs .root + PNG.
 
 Usage:
     python root_config_plots.py --config-file config.json
@@ -51,18 +42,7 @@ class ConfigurationPlotter:
     """
     
     def __init__(self, config: Dict[str, Any], output_dir: str = "plots"):
-        """
-        Initialize plotter.
-        
-        Parameters
-        ----------
-        config : dict
-            Configuration dictionary with:
-            - target_z, target_xy, gap: geometry parameters
-            - data_file: path to simulation output (CSV or ROOT)
-        output_dir : str
-            Directory for output plots
-        """
+        """Initialize plotter."""
         self.config = config
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -81,19 +61,7 @@ class ConfigurationPlotter:
         return f"T{tz:.0f}x{txy:.0f}_G{gap:.0f}"
     
     def load_data(self, data_file: str) -> pd.DataFrame:
-        """
-        Load simulation data from file.
-        
-        Parameters
-        ----------
-        data_file : str
-            Path to data file (CSV or ROOT)
-            
-        Returns
-        -------
-        pd.DataFrame
-            Loaded data
-        """
+        """Load simulation data from file."""
         data_file = Path(data_file)
         
         if data_file.suffix == '.csv':
@@ -138,19 +106,7 @@ class ConfigurationPlotter:
         return pd.DataFrame(data)
     
     def create_histograms(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """
-        Create ROOT histograms from data.
-        
-        Parameters
-        ----------
-        df : pd.DataFrame
-            Simulation data
-            
-        Returns
-        -------
-        dict
-            Dictionary of ROOT histograms
-        """
+        """Create ROOT histograms from data."""
         if not ROOT_AVAILABLE:
             return self._create_matplotlib_histograms(df)
         
@@ -272,19 +228,7 @@ class ConfigurationPlotter:
         return histograms
     
     def save_histograms(self, root_filename: str = None) -> str:
-        """
-        Save histograms to ROOT file.
-        
-        Parameters
-        ----------
-        root_filename : str
-            Output ROOT filename
-            
-        Returns
-        -------
-        str
-            Path to saved file
-        """
+        """Save histograms to ROOT file."""
         if not ROOT_AVAILABLE:
             return self._save_matplotlib_plots()
         
@@ -310,19 +254,7 @@ class ConfigurationPlotter:
         return str(self.output_dir)
     
     def create_summary_canvas(self, save_png: bool = True) -> Any:
-        """
-        Create summary canvas with all histograms.
-        
-        Parameters
-        ----------
-        save_png : bool
-            Also save as PNG image
-            
-        Returns
-        -------
-        ROOT.TCanvas or matplotlib.Figure
-            Summary canvas
-        """
+        """Create summary canvas with all histograms."""
         if not ROOT_AVAILABLE:
             return self._create_matplotlib_summary()
         
@@ -387,16 +319,7 @@ class ConfigurationComparator:
     """
     
     def __init__(self, configs: List[Dict[str, Any]], output_dir: str = "comparison_plots"):
-        """
-        Initialize comparator.
-        
-        Parameters
-        ----------
-        configs : list
-            List of configuration dictionaries
-        output_dir : str
-            Output directory
-        """
+        """Initialize comparator."""
         self.configs = configs
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -420,19 +343,7 @@ class ConfigurationComparator:
         return dataframes
     
     def create_comparison_plots(self, histogram_names: List[str] = None) -> Dict[str, Any]:
-        """
-        Create overlay comparison plots.
-        
-        Parameters
-        ----------
-        histogram_names : list
-            Names of histograms to compare (None = all)
-            
-        Returns
-        -------
-        dict
-            Dictionary of comparison canvases
-        """
+        """Create overlay comparison plots."""
         if not self.plotters:
             raise ValueError("No data loaded. Call load_all_data first.")
         
@@ -507,14 +418,7 @@ class ConfigurationComparator:
         return figures
     
     def create_summary_table(self) -> pd.DataFrame:
-        """
-        Create summary table comparing configurations.
-        
-        Returns
-        -------
-        pd.DataFrame
-            Comparison table
-        """
+        """Create summary table comparing configurations."""
         rows = []
         
         for i, config in enumerate(self.configs):
@@ -570,23 +474,7 @@ def generate_config_plots(
     data_file: str,
     output_dir: str = "config_plots"
 ) -> str:
-    """
-    Generate all plots for a single configuration.
-    
-    Parameters
-    ----------
-    config : dict
-        Configuration dictionary
-    data_file : str
-        Path to simulation data
-    output_dir : str
-        Output directory
-        
-    Returns
-    -------
-    str
-        Path to output directory
-    """
+    """Generate all plots for a single configuration."""
     plotter = ConfigurationPlotter(config, output_dir)
     df = plotter.load_data(data_file)
     plotter.create_histograms(df)
@@ -601,23 +489,7 @@ def compare_configurations(
     data_files: List[str],
     output_dir: str = "comparison_plots"
 ) -> str:
-    """
-    Compare multiple configurations.
-    
-    Parameters
-    ----------
-    config_files : list
-        Paths to configuration JSON files
-    data_files : list
-        Paths to corresponding data files
-    output_dir : str
-        Output directory
-        
-    Returns
-    -------
-    str
-        Path to output directory
-    """
+    """Compare multiple configurations."""
     # Load configurations
     configs = []
     for cf in config_files:

@@ -1,13 +1,8 @@
 #!/usr/bin/env python3
 """
-Visualization and Analysis Tools for DAMSA Optimization Results
-
-This module provides:
-1. Pareto front visualization (2D projections, 3D plots, parallel coordinates)
-2. Decision space analysis (variable distributions, correlations)
-3. Convergence plots (hypervolume over iterations)
-4. Trade-off analysis between objectives
-5. Solution comparison and ranking
+Visualization tools for DAMSA optimization results: Pareto front views
+(2D/3D/parallel coordinates), decision-space and convergence plots,
+trade-off and solution-ranking analysis.
 """
 
 import numpy as np
@@ -53,19 +48,7 @@ OBJ_LABELS = {
 
 
 def load_optimization_results(results_dir: str) -> Dict[str, Any]:
-    """
-    Load optimization results from directory.
-    
-    Parameters
-    ----------
-    results_dir : str
-        Path to results directory
-        
-    Returns
-    -------
-    dict
-        Dictionary with X (variables), F (objectives), history, etc.
-    """
+    """Load optimization results from directory."""
     results_dir = Path(results_dir)
     results = {}
     
@@ -123,33 +106,7 @@ def plot_pareto_2d(
     show_dominated: bool = False,
     all_F: np.ndarray = None
 ) -> plt.Figure:
-    """
-    Plot 2D projection of Pareto front.
-    
-    Parameters
-    ----------
-    F : np.ndarray
-        Pareto front objectives (n_solutions, n_objectives)
-    obj_indices : tuple
-        Indices of objectives to plot
-    obj_names : list
-        Names of objectives
-    title : str
-        Plot title
-    figsize : tuple
-        Figure size
-    save_path : str
-        Path to save figure
-    show_dominated : bool
-        Show dominated solutions
-    all_F : np.ndarray
-        All objective values (for showing dominated)
-        
-    Returns
-    -------
-    plt.Figure
-        Matplotlib figure
-    """
+    """Plot 2D projection of Pareto front."""
     if not MATPLOTLIB_AVAILABLE:
         raise ImportError("matplotlib required for plotting")
     
@@ -196,31 +153,7 @@ def plot_pareto_3d(
     save_path: str = None,
     color_by: int = None
 ) -> plt.Figure:
-    """
-    Plot 3D visualization of Pareto front.
-    
-    Parameters
-    ----------
-    F : np.ndarray
-        Pareto front objectives
-    obj_indices : tuple
-        Indices of 3 objectives to plot
-    obj_names : list
-        Names of objectives
-    title : str
-        Plot title
-    figsize : tuple
-        Figure size
-    save_path : str
-        Path to save figure
-    color_by : int
-        Index of 4th objective to color by (optional)
-        
-    Returns
-    -------
-    plt.Figure
-        Matplotlib figure
-    """
+    """Plot 3D visualization of Pareto front."""
     if not MATPLOTLIB_AVAILABLE:
         raise ImportError("matplotlib required for plotting")
     
@@ -260,27 +193,7 @@ def plot_pareto_matrix(
     figsize: Tuple[int, int] = None,
     save_path: str = None
 ) -> plt.Figure:
-    """
-    Plot matrix of all pairwise objective projections.
-    
-    Parameters
-    ----------
-    F : np.ndarray
-        Pareto front objectives
-    obj_names : list
-        Names of objectives
-    title : str
-        Plot title
-    figsize : tuple
-        Figure size
-    save_path : str
-        Path to save figure
-        
-    Returns
-    -------
-    plt.Figure
-        Matplotlib figure
-    """
+    """Plot matrix of all pairwise objective projections."""
     if not MATPLOTLIB_AVAILABLE:
         raise ImportError("matplotlib required for plotting")
     
@@ -331,33 +244,7 @@ def plot_parallel_coordinates(
     figsize: Tuple[int, int] = (14, 6),
     save_path: str = None
 ) -> plt.Figure:
-    """
-    Plot parallel coordinates for decision variables and objectives.
-    
-    Parameters
-    ----------
-    X : np.ndarray
-        Decision variables
-    F : np.ndarray
-        Objectives
-    var_names : list
-        Variable names
-    obj_names : list
-        Objective names
-    color_by : str
-        Objective to color by
-    title : str
-        Plot title
-    figsize : tuple
-        Figure size
-    save_path : str
-        Path to save figure
-        
-    Returns
-    -------
-    plt.Figure
-        Matplotlib figure
-    """
+    """Plot parallel coordinates for decision variables and objectives."""
     if not MATPLOTLIB_AVAILABLE:
         raise ImportError("matplotlib required for plotting")
     
@@ -431,27 +318,7 @@ def plot_convergence(
     figsize: Tuple[int, int] = (10, 6),
     save_path: str = None
 ) -> plt.Figure:
-    """
-    Plot convergence of optimization over iterations.
-    
-    Parameters
-    ----------
-    history : list
-        Evaluation history
-    metric : str
-        Metric to track ('hypervolume', 'best_signal', 'n_pareto')
-    title : str
-        Plot title
-    figsize : tuple
-        Figure size
-    save_path : str
-        Path to save figure
-        
-    Returns
-    -------
-    plt.Figure
-        Matplotlib figure
-    """
+    """Plot convergence of optimization over iterations."""
     if not MATPLOTLIB_AVAILABLE:
         raise ImportError("matplotlib required for plotting")
     
@@ -505,27 +372,7 @@ def plot_variable_distributions(
     figsize: Tuple[int, int] = (12, 8),
     save_path: str = None
 ) -> plt.Figure:
-    """
-    Plot distributions of decision variables in Pareto solutions.
-    
-    Parameters
-    ----------
-    X : np.ndarray
-        Decision variables
-    var_names : list
-        Variable names
-    title : str
-        Plot title
-    figsize : tuple
-        Figure size
-    save_path : str
-        Path to save figure
-        
-    Returns
-    -------
-    plt.Figure
-        Matplotlib figure
-    """
+    """Plot distributions of decision variables in Pareto solutions."""
     if not MATPLOTLIB_AVAILABLE:
         raise ImportError("matplotlib required for plotting")
     
@@ -566,21 +413,7 @@ def analyze_tradeoffs(
     F: np.ndarray,
     obj_names: List[str] = None
 ) -> pd.DataFrame:
-    """
-    Analyze trade-offs between objectives.
-    
-    Parameters
-    ----------
-    F : np.ndarray
-        Pareto front objectives
-    obj_names : list
-        Names of objectives
-        
-    Returns
-    -------
-    pd.DataFrame
-        Correlation matrix between objectives
-    """
+    """Analyze trade-offs between objectives."""
     if obj_names is None:
         obj_names = OBJ_NAMES_DEFAULT[:F.shape[1]]
     
@@ -597,27 +430,7 @@ def rank_solutions(
     obj_names: List[str] = None,
     method: str = 'weighted_sum'
 ) -> pd.DataFrame:
-    """
-    Rank Pareto solutions by combined metric.
-    
-    Parameters
-    ----------
-    X : np.ndarray
-        Decision variables
-    F : np.ndarray
-        Objectives
-    weights : dict
-        Weights for each objective (positive = better when smaller)
-    obj_names : list
-        Names of objectives
-    method : str
-        Ranking method ('weighted_sum', 'topsis')
-        
-    Returns
-    -------
-    pd.DataFrame
-        Ranked solutions with scores
-    """
+    """Rank Pareto solutions by combined metric."""
     if obj_names is None:
         obj_names = OBJ_NAMES_DEFAULT[:F.shape[1]]
     
@@ -680,28 +493,7 @@ def generate_report(
     generate_root_plots: bool = True,
     generate_alp_plots: bool = True
 ) -> None:
-    """
-    Generate comprehensive analysis report including ROOT and ALP signal plots.
-    
-    Parameters
-    ----------
-    results_dir : str
-        Path to optimization results
-    output_dir : str
-        Path for output plots (defaults to results_dir/analysis)
-    obj_names : list
-        Names of objectives
-    flux_file : str
-        Path to photon flux file for ALP calculations (auto-detected if None)
-    alp_mass_MeV : float
-        ALP mass for signal calculations
-    alp_coupling : float
-        ALP-photon coupling for signal calculations
-    generate_root_plots : bool
-        Generate ROOT summary plots for top configurations
-    generate_alp_plots : bool
-        Generate ALP signal visualization plots
-    """
+    """Generate comprehensive analysis report including ROOT and ALP signal plots."""
     if not MATPLOTLIB_AVAILABLE:
         raise ImportError("matplotlib required for report generation")
     
@@ -883,18 +675,7 @@ def generate_root_summary_plots(
     output_dir: str,
     top_n: int = 5
 ) -> None:
-    """
-    Generate ROOT summary plots for top Pareto solutions.
-    
-    Parameters
-    ----------
-    results_dir : str
-        Path to optimization results
-    output_dir : str
-        Output directory for ROOT plots
-    top_n : int
-        Number of top solutions to generate plots for
-    """
+    """Generate ROOT summary plots for top Pareto solutions."""
     # Import ROOT plotting module
     try:
         from scripts.visualization.root_config_plots import ConfigurationPlotter, ConfigurationComparator
@@ -1017,20 +798,7 @@ def generate_alp_signal_plots(
     alp_mass_MeV: float = 100.0,
     coupling: float = 1e-3
 ) -> None:
-    """
-    Generate ALP signal visualization plots.
-    
-    Parameters
-    ----------
-    flux_file : str
-        Path to photon flux CSV file
-    output_dir : str
-        Output directory for plots
-    alp_mass_MeV : float
-        ALP mass in MeV
-    coupling : float
-        ALP-photon coupling
-    """
+    """Generate ALP signal visualization plots."""
     # Import ALP plotting module
     try:
         from scripts.alplib.alplib_signal_plots import ALPSignalVisualizer

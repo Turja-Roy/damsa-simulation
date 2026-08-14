@@ -20,7 +20,6 @@ Produces:
   plots/pareto_gap_curves.png     — signal & background vs gap separately
 
 Usage:
-  python scripts/fast_pareto_scan.py
   python scripts/fast_pareto_scan.py --ma-list 5 10 20 --n-samples 20000
 """
 
@@ -67,19 +66,6 @@ def propagate_background(particles_df: pd.DataFrame,
     """
     For each gap, straight-line-propagate target-exit particles to the calo
     face and count weighted background (photons + neutron_weight × neutrons).
-
-    Parameters
-    ----------
-    particles_df : full `all_particles_target_exit.csv` (or subset by PDG)
-    gaps_cm      : array of gap values in cm
-    norm_factor  : (electrons_in_exposure / n_primaries) × per_particle_weight
-                   For an MC bkg where each row has weight=1, this equals
-                   n_electrons / n_primaries.
-    neutron_weight : extra weight for neutrons vs photons (default 10)
-
-    Returns
-    -------
-    np.ndarray shape (len(gaps_cm),) — weighted background per gap
     """
     # Select photons and neutrons only
     photon_mask  = particles_df['pdg'].values == 22

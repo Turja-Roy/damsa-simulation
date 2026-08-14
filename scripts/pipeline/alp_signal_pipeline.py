@@ -12,14 +12,8 @@ Outputs:
   - Decay photon 4-vector CSVs for Geant4 re-injection (alp_generator.h)
 
 Usage:
-    # Use Geant4 brems flux (run Geant4 first to produce alplib_brems_flux.csv):
     python alp_signal_pipeline.py --flux output/alplib_brems_flux.csv --nprimaries 10000
-
-    # Analytic fallback (no Geant4 run required):
-    python alp_signal_pipeline.py --analytic
-
-    # Quick test for one mass:
-    python alp_signal_pipeline.py --analytic --mass 100 --coupling 1e-3
+    python alp_signal_pipeline.py --analytic --mass 100 --coupling 1e-3  # no Geant4 run needed
 """
 
 import sys
@@ -232,23 +226,11 @@ def expected_mean_theta_per_alp(Ea, ma, n_integration=200):
 # ──────────────────────────────────────────────────────────────────────────────
 
 def run_alplib(photon_flux, ma_MeV, coupling_GeV, n_samples=5000):
-    """
-    Run FluxPrimakoffIsotropic for one (mass, coupling) point.
+    """Run FluxPrimakoffIsotropic for one (mass, coupling) point.
 
-    Parameters
-    ----------
-    photon_flux : np.ndarray, shape (N, 2)
-        [[E_MeV, photons/s], ...]  — the photon flux entering the tungsten target.
-    ma_MeV : float
-        ALP mass in MeV.
-    coupling_GeV : float
-        g_aγγ in GeV^-1.  Converted internally to MeV^-1 for alplib.
-    n_samples : int
-        MC samples per flux point (for 4-vector generation).
-
-    Returns
-    -------
-    flux_obj, generator : (FluxPrimakoffIsotropic, PhotonEventGenerator)
+    photon_flux: [[E_MeV, photons/s], ...] entering the tungsten target.
+    coupling_GeV: g_agammagamma in GeV^-1, converted internally to MeV^-1 for alplib.
+    Returns (flux_obj, generator).
     """
     # Unit conversion: 1 GeV^-1 = 1e-3 MeV^-1
     coupling_MeV = coupling_GeV / 1000.0

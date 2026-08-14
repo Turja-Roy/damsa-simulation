@@ -72,14 +72,7 @@ class SimulationResult:
         return np.sum(self.photon_angles <= theta_max_rad)
     
     def get_photon_flux_array(self, bin_width_MeV: float = 1.0) -> np.ndarray:
-        """
-        Get binned photon flux for alplib input.
-        
-        Returns
-        -------
-        np.ndarray
-            2D array [[energy_MeV, count], ...]
-        """
+        """Get binned photon flux for alplib input."""
         if len(self.photon_energies) == 0:
             return np.array([[1.0, 0.0]])
         
@@ -221,29 +214,7 @@ GAP_CM {gap}
     def run(self, target_z: float, target_x: float, target_y: float,
             gap: float, n_events: Optional[int] = None,
             use_cache: bool = True) -> SimulationResult:
-        """
-        Run Geant4 simulation with specified geometry parameters.
-        
-        Parameters
-        ----------
-        target_z : float
-            Target thickness in cm
-        target_x : float
-            Target width (X) in cm
-        target_y : float
-            Target height (Y) in cm
-        gap : float
-            Gap distance (target exit to detector) in cm
-        n_events : int, optional
-            Number of events (uses default if not specified)
-        use_cache : bool
-            Whether to use cached results
-            
-        Returns
-        -------
-        SimulationResult
-            Container with all simulation outputs
-        """
+        """Run Geant4 simulation with specified geometry parameters."""
         if n_events is None:
             n_events = self.n_events
         
@@ -411,21 +382,7 @@ GAP_CM {gap}
     
     def run_batch(self, parameter_sets: np.ndarray, 
                   n_workers: int = 1) -> list:
-        """
-        Run multiple simulations (optionally in parallel).
-        
-        Parameters
-        ----------
-        parameter_sets : np.ndarray
-            Array of shape (N, 4) with columns [target_z, target_x, target_y, gap]
-        n_workers : int
-            Number of parallel workers
-            
-        Returns
-        -------
-        list
-            List of SimulationResult objects
-        """
+        """Run multiple simulations (optionally in parallel)."""
         results = []
         
         if n_workers == 1:

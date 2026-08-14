@@ -1,20 +1,11 @@
 #!/usr/bin/env python3
 """
-DAMSA Hybrid Optimization Pipeline
-
-This script implements a hybrid optimization strategy:
-1. Phase 1 (Exploration): Bayesian optimization with BoTorch for efficient
-   global exploration of the parameter space
-2. Phase 2 (Refinement): NSGA-II for Pareto front refinement using BO data
-   as warm-start
-
-The hybrid approach combines the sample-efficiency of BO with the 
-population-based diversity of NSGA-II.
+DAMSA hybrid optimization pipeline: Bayesian optimization (BoTorch) for
+sample-efficient exploration, then NSGA-II for Pareto front refinement
+warm-started from the BO data.
 
 Usage:
     python run_optimization.py --mode hybrid --n-bo-iter 50 --n-nsga-gen 100
-    python run_optimization.py --mode bo-only --n-bo-iter 100
-    python run_optimization.py --mode nsga-only --n-nsga-gen 200
 """
 
 import argparse
@@ -85,26 +76,6 @@ def run_hybrid_optimization(
     1. Run Bayesian optimization for efficient exploration
     2. Use BO results to warm-start NSGA-II population
     3. Run NSGA-II for Pareto front refinement
-    
-    Parameters
-    ----------
-    opt_config : OptimizationConfig
-        Problem configuration
-    bo_config : BOConfig
-        Bayesian optimization configuration
-    nsga_pop_size : int
-        NSGA-II population size
-    nsga_n_gen : int
-        NSGA-II generations
-    output_dir : Path
-        Output directory
-    verbose : bool
-        Print progress
-        
-    Returns
-    -------
-    dict
-        Combined optimization results
     """
     if not BOTORCH_AVAILABLE:
         raise ImportError("BoTorch required for hybrid mode. Use --mode nsga-only")

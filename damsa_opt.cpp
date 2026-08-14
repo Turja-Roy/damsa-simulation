@@ -1,18 +1,6 @@
-/**
- * @file damsa_opt.cpp
- * @brief DAMSA optimization batch runner
- * 
- * Runs a single simulation with geometry parameters specified via command line
- * and outputs flux data for Python optimization scripts.
- * 
- * Usage:
- *   ./damsa_opt --target-z 10 --target-xy 5 --gap 50 --n-events 1000 --output-dir ./output
- * 
- * Output files (in output-dir):
- *   - photon_flux_target_exit.csv  : Photon flux at target exit
- *   - background_target_exit.csv   : Background particles at target exit
- *   - simulation_info.json         : Metadata about the run
- */
+// DAMSA optimization batch runner — sets geometry from CLI flags, no macro.
+// Usage:
+//   ./damsa_opt --target-z 10 --target-xy 5 --gap 50 --n-events 1000 --output-dir ./output
 
 #include <iostream>
 #include <fstream>

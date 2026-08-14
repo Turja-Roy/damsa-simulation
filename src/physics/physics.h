@@ -18,8 +18,8 @@ class DamsaPhysicsList : public FTFP_BERT {
 public:
     DamsaPhysicsList() : FTFP_BERT() {
         G4EmExtraPhysics* emExtra = new G4EmExtraPhysics();
-        emExtra->GammaNuclear(true);       // γ + N → π⁰ + X  (critical for your use case)
-        emExtra->ElectroNuclear(true);     // e⁻ + N → e⁻ + π⁰ + X
+        emExtra->GammaNuclear(true);       // gamma + N -> pi0 + X
+        emExtra->ElectroNuclear(true);     // e- + N -> e- + pi0 + X
         emExtra->MuonNuclear(true);        // minor contribution, good to have
         // FTFP_BERT already registers a G4EmExtraPhysics; RegisterPhysics()
         // rejects a second constructor of the same physics type, silently

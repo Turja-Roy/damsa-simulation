@@ -16,11 +16,6 @@ Produces:
 
 Usage:
     python scripts/final_report.py
-    python scripts/final_report.py --pareto  output/joint_pareto/Tz10_pareto.csv \\
-                                   --grid    output/joint_pareto/Tz10_grid.csv \\
-                                   --proj    output/target_projection/target_projection_grid.csv \\
-                                   --flux    output/alplib_brems_flux.csv \\
-                                   --n-primaries 100000 --output-dir output/final_report
 """
 
 import argparse

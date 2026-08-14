@@ -20,15 +20,7 @@ Outputs (under --output-dir):
     plots/<label>_pareto_front.png
 
 Usage:
-    python scripts/joint_pareto_scan.py
-    python scripts/joint_pareto_scan.py \\
-        --particles output/all_particles_target_exit.csv \\
-        --flux      output/alplib_brems_flux.csv \\
-        --vdc-min 30 --vdc-max 40 --vdc-step 2 \\
-        --calo-min 12 --calo-max 20 --calo-step 2 \\
-        --ma-list 10 20 50 100 200 \\
-        --label Tz10 \\
-        --output-dir output/joint_pareto
+    python scripts/joint_pareto_scan.py --vdc-min 30 --vdc-max 40 --calo-min 12 --calo-max 20 --label Tz10
 """
 
 import argparse
@@ -71,10 +63,6 @@ def propagate_background_grid(particles_df: pd.DataFrame,
     """
     Straight-line propagate target-exit particles to calo face for each
     (VDC, calo) combination.
-
-    Returns
-    -------
-    np.ndarray shape (len(vdc_values_cm), len(calo_values_cm))
     """
     photon_mask  = particles_df['pdg'].values == 22
     neutron_mask = particles_df['pdg'].values == 2112
@@ -120,14 +108,7 @@ def geometric_acceptance_grid(events: list,
                                energy_cut_MeV: float = 100.0,
                                rng: np.random.Generator = None
                                ) -> tuple:
-    """
-    For each (VDC, calo) pair, compute accepted_fraction and separable_fraction.
-
-    Returns
-    -------
-    acc  : np.ndarray shape (len(vdc_values_cm), len(calo_values_cm))
-    sep  : np.ndarray shape (len(vdc_values_cm), len(calo_values_cm))
-    """
+    """For each (VDC, calo) pair, compute accepted_fraction and separable_fraction."""
     if rng is None:
         rng = np.random.default_rng(0)
 
@@ -174,14 +155,7 @@ def geometric_acceptance_grid(events: list,
 # ─── Pareto utilities ─────────────────────────────────────────────────────────
 
 def is_pareto_optimal(objectives: np.ndarray, minimize: list) -> np.ndarray:
-    """
-    Return boolean mask of non-dominated rows.
-
-    Parameters
-    ----------
-    objectives : shape (N, k)  — k objective values
-    minimize   : list of bool, length k — True if that objective should be minimised
-    """
+    """Return boolean mask of non-dominated rows."""
     N = len(objectives)
     is_pareto = np.ones(N, dtype=bool)
     # Flip maximised objectives so we only need to handle minimisation

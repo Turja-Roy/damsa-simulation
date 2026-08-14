@@ -135,20 +135,6 @@ def generate_opening_angle_distributions(photon_flux, n_samples=400, n_angle_bin
     For each mass in MASS_GRID_PLOT, runs alplib MC decay and calculates
     opening angles from the photon pair 4-vectors. Returns histograms
     of weighted events vs opening angle (degrees).
-    
-    Parameters
-    ----------
-    photon_flux : np.ndarray
-        2D array [energy, rate] for photon flux
-    n_samples : int
-        Number of ALP samples per mass
-    n_angle_bins : int
-        Number of bins for angle histogram
-        
-    Returns
-    -------
-    dict
-        {ma: (angles_deg, weights)} for each mass
     """
     results = {}
     
@@ -200,13 +186,6 @@ def plot_opening_angle_overlay(distributions, output_path="plots/opening_angles_
     """
     Create publication-quality overlay plot of opening angle distributions
     for multiple ALP masses.
-    
-    Parameters
-    ----------
-    distributions : dict
-        {ma: (angles_deg, weights)} for each mass
-    output_path : str
-        Path to save PNG output
     """
     if not PLOT:
         return
