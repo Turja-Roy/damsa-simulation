@@ -66,10 +66,16 @@ target_link_libraries(subsample_alp_csv PRIVATE ROOT::Core ROOT::RIO ROOT::ROOTN
 add_executable(damsa_convert tools/damsa_convert.cpp)
 target_link_libraries(damsa_convert PRIVATE ROOT::Core ROOT::RIO ROOT::ROOTNTuple)
 
+add_executable(alp_xcheck tools/alp_xcheck.cpp)
+target_include_directories(alp_xcheck PRIVATE ${PROJECT_SOURCE_DIR}/src/alp)
+
 # ── Self-check (no framework; run ./build/damsa_io_test) ────────────────────
 add_executable(damsa_io_test tests/test_damsa_io.cpp)
 target_link_libraries(damsa_io_test PRIVATE ROOT::Core ROOT::RIO ROOT::ROOTNTuple)
 
+add_executable(alp_test tests/test_alp.cpp)
+target_include_directories(alp_test PRIVATE ${PROJECT_SOURCE_DIR}/src/alp)
+
 add_custom_target(Damsa DEPENDS damsa damsa_opt damsa_alp_inject
                          analyze_gap_scan flux_converter subsample_alp_csv
-                         snr_separability damsa_io_test damsa_convert)
+                         snr_separability damsa_io_test damsa_convert alp_xcheck alp_test)
