@@ -34,70 +34,13 @@
 #include <cstring>
 #include <map>
 
-// ─────────────────────────────────────────────────────────────────
-// CSV reader — reads header, then stores rows as map<column, value>
-// ─────────────────────────────────────────────────────────────────
+#include "damsa_io.h"
 
-struct CSVRow {
-    std::map<std::string, double> cols;
-    double get(const std::string& name, double fallback = 0.0) const {
-        auto it = cols.find(name);
-        return (it != cols.end()) ? it->second : fallback;
-    }
-    bool has(const std::string& name) const { return cols.count(name) > 0; }
-};
-
-struct CSVData {
-    std::vector<std::string> header;
-    std::vector<CSVRow> rows;
-};
-
-// Trim whitespace from both ends
-static std::string Trim(const std::string& s) {
-    size_t a = s.find_first_not_of(" \t\r\n");
-    if (a == std::string::npos) return "";
-    size_t b = s.find_last_not_of(" \t\r\n");
-    return s.substr(a, b - a + 1);
-}
-
-CSVData ReadCSV(const std::string& path) {
-    CSVData csv;
-    std::ifstream f(path);
-    if (!f.is_open()) {
-        std::cerr << "Error: cannot open " << path << "\n";
-        std::exit(1);
-    }
-
-    // Read header
-    std::string line;
-    if (!std::getline(f, line)) {
-        std::cerr << "Error: empty file " << path << "\n";
-        std::exit(1);
-    }
-    std::istringstream hss(line);
-    std::string tok;
-    while (std::getline(hss, tok, ',')) {
-        csv.header.push_back(Trim(tok));
-    }
-
-    // Read rows
-    while (std::getline(f, line)) {
-        if (Trim(line).empty()) continue;
-        std::istringstream rss(line);
-        CSVRow row;
-        for (size_t i = 0; i < csv.header.size(); ++i) {
-            std::string cell;
-            if (!std::getline(rss, cell, ',')) break;
-            try {
-                row.cols[csv.header[i]] = std::stod(cell);
-            } catch (...) {
-                row.cols[csv.header[i]] = 0.0;
-            }
-        }
-        csv.rows.push_back(row);
-    }
-    return csv;
-}
+// CSV reading lives in src/data/damsa_io.h — this file used to carry its own
+// copy, byte-identical to the one in snr_separability.cpp.
+using damsa::io::ReadCsv;
+using damsa::io::CsvTable;
+using CSVRow = damsa::io::CsvRowView;
 
 // ─────────────────────────────────────────────────────────────────
 // Apply cuts
@@ -315,11 +258,11 @@ int main(int argc, char** argv) {
 
     // Load CSV
     std::printf("Loading: %s\n", inputPath.c_str());
-    CSVData csv = ReadCSV(inputPath);
-    std::printf("Loaded %zu photons\n", csv.rows.size());
+    CsvTable csv = ReadCsv(inputPath);
+    std::printf("Loaded %zu photons\n", csv.size());
 
     // Apply cuts
-    auto rows = csv.rows;
+    auto rows = csv.views();
     bool hasCuts = (cuts.minEnergy >= 0 || cuts.maxEnergy >= 0 ||
                     cuts.maxAngle >= 0 || cuts.maxTime >= 0);
     if (hasCuts) {
@@ -335,7 +278,7 @@ int main(int argc, char** argv) {
     }
 
     // Summary and save
-    PrintFluxSummary(flux, csv.rows.size());
+    PrintFluxSummary(flux, csv.size());
     SaveAlplibFlux(flux, outputPath);
 
     std::cout << "Done!\n";

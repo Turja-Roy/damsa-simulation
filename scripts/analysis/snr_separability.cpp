@@ -24,6 +24,8 @@
  *       --plot-dir plots/snr
  */
 
+#include "damsa_io.h"
+
 #include "TCanvas.h"
 #include "TGraph.h"
 #include "TH2D.h"
@@ -52,59 +54,11 @@ static constexpr double SECONDS_PER_DAY = 86400.0;
 // CSV reader (same lightweight approach as flux_converter)
 // ─────────────────────────────────────────────────────────────────
 
-static std::string Trim(const std::string& s) {
-    size_t a = s.find_first_not_of(" \t\r\n");
-    if (a == std::string::npos) return "";
-    size_t b = s.find_last_not_of(" \t\r\n");
-    return s.substr(a, b - a + 1);
-}
-
-struct CSVRow {
-    std::map<std::string, double> cols;
-    double get(const std::string& name, double fallback = 0.0) const {
-        auto it = cols.find(name);
-        return (it != cols.end()) ? it->second : fallback;
-    }
-    bool has(const std::string& name) const { return cols.count(name) > 0; }
-};
-
-struct CSVData {
-    std::vector<std::string> header;
-    std::vector<CSVRow> rows;
-};
-
-CSVData ReadCSV(const std::string& path) {
-    CSVData csv;
-    std::ifstream f(path);
-    if (!f.is_open()) {
-        std::fprintf(stderr, "Error: cannot open %s\n", path.c_str());
-        return csv;
-    }
-
-    std::string line;
-    if (!std::getline(f, line)) return csv;
-    std::istringstream hss(line);
-    std::string tok;
-    while (std::getline(hss, tok, ',')) csv.header.push_back(Trim(tok));
-
-    while (std::getline(f, line)) {
-        if (Trim(line).empty()) continue;
-        std::istringstream rss(line);
-        CSVRow row;
-        for (size_t i = 0; i < csv.header.size(); ++i) {
-            std::string cell;
-            if (!std::getline(rss, cell, ',')) break;
-            try { row.cols[csv.header[i]] = std::stod(cell); }
-            catch (...) { row.cols[csv.header[i]] = 0.0; }
-        }
-        csv.rows.push_back(row);
-    }
-    return csv;
-}
-
-// ─────────────────────────────────────────────────────────────────
-// Particle filtering
-// ─────────────────────────────────────────────────────────────────
+// CSV reading lives in src/data/damsa_io.h — this file used to carry a copy of
+// flux_converter.cpp's reader, as its own comment admitted.
+using damsa::io::ReadCsv;
+using damsa::io::CsvTable;
+using CSVRow = damsa::io::CsvRowView;
 
 std::vector<CSVRow> FilterParticles(const std::vector<CSVRow>& rows,
                                      const std::vector<int>& pdgCodes) {
@@ -545,12 +499,13 @@ int main(int argc, char** argv) {
 
     std::mt19937_64 rng(seed);
 
-    // Create output directories
+    // Create output directories.
+    // NB: this used to be outCsv.substr(0, outCsv.rfind('/')) — with no '/' in
+    // the path, rfind returns npos and substr(0, npos) yields the whole string,
+    // so "--out-csv foo.csv" created foo.csv as a *directory* and the write then
+    // failed silently.
     gSystem->mkdir(plotDir.c_str(), true);
-    {
-        std::string outDir = outCsv.substr(0, outCsv.rfind('/'));
-        if (!outDir.empty()) gSystem->mkdir(outDir.c_str(), true);
-    }
+    damsa::io::EnsureParentDir(outCsv);
 
     // Normalization: per-primary → events in full exposure
     double eps = (beamCurrentUA * 1e-6) / CHARGE_COULOMBS;
@@ -565,13 +520,13 @@ int main(int argc, char** argv) {
 
     // ── Load background ─────────────────────────────────────────
     std::printf("Loading background: %s\n", bkgCsv.c_str());
-    CSVData bkgData = ReadCSV(bkgCsv);
-    if (bkgData.rows.empty()) {
+    CsvTable bkgData = ReadCsv(bkgCsv);
+    if (bkgData.size() == 0) {
         std::fprintf(stderr, "Error: no data in background CSV\n");
         return 1;
     }
     // Filter photons (22) + neutrons (2112)
-    auto bkgRows = FilterParticles(bkgData.rows, {22, 2112});
+    auto bkgRows = FilterParticles(bkgData.views(), {22, 2112});
     std::printf("  Loaded %zu particles (photons + neutrons)\n", bkgRows.size());
 
     // Extract E, theta, weights; smear and cut
@@ -649,13 +604,13 @@ int main(int argc, char** argv) {
         std::string sigPath = ReplaceMA(signalPattern, ma);
         std::printf("\nProcessing ma = %d MeV: %s\n", ma, sigPath.c_str());
 
-        CSVData sigData = ReadCSV(sigPath);
-        if (sigData.rows.empty()) {
+        CsvTable sigData = ReadCsv(sigPath);
+        if (sigData.size() == 0) {
             std::printf("  WARNING: File not found or empty, skipping\n");
             continue;
         }
 
-        auto sigRows = FilterParticles(sigData.rows, {22});
+        auto sigRows = FilterParticles(sigData.views(), {22});
         std::printf("  Loaded %zu signal photons\n", sigRows.size());
         if (sigRows.empty()) {
             std::printf("  WARNING: No signal photons, skipping\n");
