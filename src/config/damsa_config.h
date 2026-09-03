@@ -78,6 +78,13 @@ inline RunMode    gRunMode        = RunMode::ElectronBeam;
 inline BeamMode   gBeamMode       = BeamMode::LESALaser;  // flux normalization mode
 inline std::string gALPDecayCSV   = "";     // path to alp_decay_photons_maX.csv
 inline std::string gOutputPrefix  = "";     // prepended to every CSV/ROOT file in run.h
+
+// ── Output format (migration: CSV -> RNTuple) ───────────────────────────────
+// Both default on so every run produces a diff pair while the pipeline is being
+// ported. Turn gWriteCSV off once the downstream consumers read RNTuple; the
+// ASCII files are the ones that grew output/ to 7.6 GB.
+inline bool       gWriteCSV        = true;
+inline bool       gWriteNTuple     = true;
 inline double     gALPVertexZ_cm  = -45.0; // ALP production vertex z (target centre, cm)
 inline int        gALPRefireFactor = 1;    // number of times each ALP row is re-fired
 

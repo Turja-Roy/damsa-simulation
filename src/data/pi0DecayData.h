@@ -12,6 +12,7 @@
 #include <iomanip>
 #include <cmath>
 #include <sys/stat.h>
+#include "damsa_io.h"
 
 // Complete record for one pi0 -> gamma+gamma decay
 struct Pi0Decay {
@@ -89,6 +90,7 @@ public:
     // CSV output (master thread, EndOfRunAction)
     void WriteCSV(const G4String& filename) const;
     void WriteSummaryCSV(const G4String& filename) const;
+    void WriteNTuple(const G4String& filename) const;
 
     void Reset();
 
@@ -227,6 +229,42 @@ inline void DamsaPi0Collector::Reset()
     fTotalPi0Produced = 0;
 }
 
+// Geant4 internal units -> the units the CSV columns are named for, plus the
+// two conversions the CSV writer did inline (radians -> degrees, e1+e2).
+inline damsa::io::Pi0Row ToPi0Row(const Pi0Decay& d)
+{
+    damsa::io::Pi0Row r;
+    r.eventID          = d.eventID;
+    r.pi0TrackID       = d.pi0TrackID;
+    r.vx_mm            = d.vx / mm;
+    r.vy_mm            = d.vy / mm;
+    r.vz_mm            = d.vz / mm;
+    r.gamma1TrackID    = d.gamma1TrackID;
+    r.e1_MeV           = d.e1 / MeV;
+    r.px1 = d.px1; r.py1 = d.py1; r.pz1 = d.pz1;
+    r.gamma2TrackID    = d.gamma2TrackID;
+    r.e2_MeV           = d.e2 / MeV;
+    r.px2 = d.px2; r.py2 = d.py2; r.pz2 = d.pz2;
+    r.openingAngle_deg = d.openingAngle * 180.0 / M_PI;
+    r.pi0Energy_MeV    = (d.e1 + d.e2) / MeV;
+    r.gamma1AtCalo     = d.gamma1AtCalo     ? 1 : 0;
+    r.gamma2AtCalo     = d.gamma2AtCalo     ? 1 : 0;
+    r.gamma1GeomAccept = d.gamma1GeomAccept ? 1 : 0;
+    r.gamma2GeomAccept = d.gamma2GeomAccept ? 1 : 0;
+    r.caloEnergyMeV    = d.caloEnergyMeV;
+    return r;
+}
+
+inline void DamsaPi0Collector::WriteNTuple(const G4String& filename) const
+{
+    const std::string path = "output/" + filename;
+    damsa::io::NTupleWriter<damsa::io::Pi0Row> w(path);
+    for (const auto& d : fDecays) w.Fill(ToPi0Row(d));
+    w.Finish();
+    G4cout << "pi0 decay RNTuple written to: " << path
+           << " (" << fDecays.size() << " decays)" << G4endl;
+}
+
 inline void DamsaPi0Collector::WriteCSV(const G4String& filename) const
 {
     mkdir("output", 0755);
@@ -237,36 +275,10 @@ inline void DamsaPi0Collector::WriteCSV(const G4String& filename) const
         return;
     }
 
-    out << "eventID,pi0TrackID,vx_mm,vy_mm,vz_mm,"
-        << "gamma1TrackID,e1_MeV,px1,py1,pz1,"
-        << "gamma2TrackID,e2_MeV,px2,py2,pz2,"
-        << "openingAngle_deg,pi0Energy_MeV,"
-        << "gamma1AtCalo,gamma2AtCalo,"
-        << "gamma1GeomAccept,gamma2GeomAccept,"
-        << "caloEnergyMeV\n";
-
-    for (const auto& d : fDecays) {
-        double angleDeg = d.openingAngle * 180.0 / M_PI;
-        double pi0EMeV  = (d.e1 + d.e2) / MeV;
-        out << d.eventID          << ","
-            << d.pi0TrackID       << ","
-            << std::scientific << std::setprecision(4)
-            << d.vx/mm  << "," << d.vy/mm  << "," << d.vz/mm  << ","
-            << d.gamma1TrackID    << ","
-            << d.e1/MeV << "," << d.px1 << "," << d.py1 << "," << d.pz1 << ","
-            << d.gamma2TrackID    << ","
-            << d.e2/MeV << "," << d.px2 << "," << d.py2 << "," << d.pz2 << ","
-            << std::fixed << std::setprecision(4)
-            << angleDeg  << ","
-            << std::scientific
-            << pi0EMeV   << ","
-            << (d.gamma1AtCalo     ? 1 : 0) << ","
-            << (d.gamma2AtCalo     ? 1 : 0) << ","
-            << (d.gamma1GeomAccept ? 1 : 0) << ","
-            << (d.gamma2GeomAccept ? 1 : 0) << ","
-            << std::fixed << std::setprecision(4)
-            << d.caloEnergyMeV << "\n";
-    }
+    // Format lives in damsa_io.h so the RNTuple can be re-emitted and diffed
+    // against this file byte for byte.
+    out << damsa::io::kPi0CsvHeader << "\n";
+    for (const auto& d : fDecays) damsa::io::WritePi0CsvRow(out, ToPi0Row(d));
 
     out.close();
     G4cout << "pi0 decay CSV written to: " << fullPath

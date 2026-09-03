@@ -38,6 +38,8 @@ private:
     G4UIcmdWithADoubleAndUnit* fSetTargetLengthCmd;
     G4UIcmdWithADoubleAndUnit* fSetCaloSizeXYCmd;
     G4UIcmdWithAString*        fSetOutputPrefixCmd;
+    G4UIcmdWithABool*          fSetWriteCSVCmd;
+    G4UIcmdWithABool*          fSetWriteNTupleCmd;
     G4UIcmdWithAString*        fSetBeamModeCmd;
     G4UIcmdWithABool*          fSetPulsedBeamCmd;
     G4UIcmdWithADoubleAndUnit* fSetReadoutGateCmd;
@@ -54,7 +56,9 @@ private:
 inline DamsaDetectorMessenger::DamsaDetectorMessenger(DamsaDetectorConstruction* det)
 : fDetector(det), fDetDir(nullptr),
   fSetVDCLengthCmd(nullptr), fSetTargetLengthCmd(nullptr), fSetCaloSizeXYCmd(nullptr),
-  fSetOutputPrefixCmd(nullptr), fSetBeamModeCmd(nullptr),
+  fSetOutputPrefixCmd(nullptr),
+  fSetWriteCSVCmd(nullptr), fSetWriteNTupleCmd(nullptr),
+  fSetBeamModeCmd(nullptr),
   fSetPulsedBeamCmd(nullptr), fSetReadoutGateCmd(nullptr), fSetBeamSpotSigmaCmd(nullptr)
 {
     fDetDir = new G4UIdirectory("/damsa/");
@@ -89,9 +93,22 @@ inline DamsaDetectorMessenger::DamsaDetectorMessenger(DamsaDetectorConstruction*
 
     fSetOutputPrefixCmd = new G4UIcmdWithAString("/damsa/setOutputPrefix", this);
     fSetOutputPrefixCmd->SetGuidance("Set output file prefix (path + basename prefix).");
-    fSetOutputPrefixCmd->SetGuidance("Example: /damsa/setOutputPrefix output/Tz14/");
+    // Must be slash-free: writers open "output/" + prefix + name, so a prefix
+    // containing '/' nests under output/ a second time (CLAUDE.md gotcha).
+    fSetOutputPrefixCmd->SetGuidance("Must not contain '/'. Example: Tz14_");
     fSetOutputPrefixCmd->SetParameterName("Prefix", false);
     fSetOutputPrefixCmd->AvailableForStates(G4State_PreInit, G4State_Idle);
+
+    fSetWriteCSVCmd = new G4UIcmdWithABool("/damsa/setWriteCSV", this);
+    fSetWriteCSVCmd->SetGuidance("Write the legacy ASCII CSV outputs (default true).");
+    fSetWriteCSVCmd->SetGuidance("Turn off once downstream analysis reads RNTuple.");
+    fSetWriteCSVCmd->SetParameterName("On", false);
+    fSetWriteCSVCmd->AvailableForStates(G4State_PreInit, G4State_Idle);
+
+    fSetWriteNTupleCmd = new G4UIcmdWithABool("/damsa/setWriteNTuple", this);
+    fSetWriteNTupleCmd->SetGuidance("Write the RNTuple outputs (default true).");
+    fSetWriteNTupleCmd->SetParameterName("On", false);
+    fSetWriteNTupleCmd->AvailableForStates(G4State_PreInit, G4State_Idle);
 
     fSetBeamModeCmd = new G4UIcmdWithAString("/damsa/setBeamMode", this);
     fSetBeamModeCmd->SetGuidance("Set LESA beam mode (flux normalization).");
@@ -131,6 +148,8 @@ inline DamsaDetectorMessenger::~DamsaDetectorMessenger()
     delete fSetTargetLengthCmd;
     delete fSetCaloSizeXYCmd;
     delete fSetOutputPrefixCmd;
+    delete fSetWriteCSVCmd;
+    delete fSetWriteNTupleCmd;
     delete fSetBeamModeCmd;
     delete fSetPulsedBeamCmd;
     delete fSetReadoutGateCmd;
@@ -146,6 +165,10 @@ inline void DamsaDetectorMessenger::SetNewValue(G4UIcommand* cmd, G4String val)
         fDetector->SetTargetLength(fSetTargetLengthCmd->GetNewDoubleValue(val));
     } else if (cmd == fSetCaloSizeXYCmd) {
         fDetector->SetCaloSizeXY(fSetCaloSizeXYCmd->GetNewDoubleValue(val));
+    } else if (cmd == fSetWriteCSVCmd) {
+        DamsaConfig::gWriteCSV = G4UIcmdWithABool::GetNewBoolValue(val);
+    } else if (cmd == fSetWriteNTupleCmd) {
+        DamsaConfig::gWriteNTuple = G4UIcmdWithABool::GetNewBoolValue(val);
     } else if (cmd == fSetOutputPrefixCmd) {
         DamsaConfig::gOutputPrefix = std::string(val);
         G4cout << "[Config] Output prefix set to: " << val << G4endl;

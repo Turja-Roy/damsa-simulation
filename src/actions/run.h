@@ -39,16 +39,25 @@ void DamsaRunAction::EndOfRunAction(const G4Run* run) {
     // Write flux data for alplib integration
     G4int nEvents = run->GetNumberOfEvent();
 
-    // Write detailed CSV files (exit photons — for background studies)
-    DamsaFluxCollector::Instance()->WritePhotonFluxCSV(prefix + "photon_flux_target_exit.csv");
-    DamsaFluxCollector::Instance()->WriteBackgroundCSV(prefix + "background_target_exit.csv");
-    DamsaFluxCollector::Instance()->WriteCSV(prefix + "all_particles_target_exit.csv");
-    
-    // Write calo-face particle CSV for SNR analysis
-    DamsaFluxCollector::Instance()->WriteCaloFaceCSV(prefix + "calo_face_particles.csv");
+    // Particle and pi0 data. Both formats are written while the analysis
+    // pipeline is being ported (DamsaConfig::gWriteCSV / gWriteNTuple), so each
+    // run yields a CSV/RNTuple pair to cross-check before the CSVs are dropped.
+    if (DamsaConfig::gWriteCSV) {
+        DamsaFluxCollector::Instance()->WritePhotonFluxCSV(prefix + "photon_flux_target_exit.csv");
+        DamsaFluxCollector::Instance()->WriteBackgroundCSV(prefix + "background_target_exit.csv");
+        DamsaFluxCollector::Instance()->WriteCSV(prefix + "all_particles_target_exit.csv");
+        DamsaFluxCollector::Instance()->WriteCaloFaceCSV(prefix + "calo_face_particles.csv");
+        DamsaPi0Collector::Instance()->WriteCSV(prefix + "pi0_decays.csv");
+    }
+    if (DamsaConfig::gWriteNTuple) {
+        // photon_flux_ and background_ are pdg filters over the same target-exit
+        // rows, so they collapse into this one file.
+        DamsaFluxCollector::Instance()->WriteTargetExitNTuple(prefix + "target_exit.root");
+        DamsaFluxCollector::Instance()->WriteCaloFaceNTuple(prefix + "calo_face_particles.root");
+        DamsaPi0Collector::Instance()->WriteNTuple(prefix + "pi0_decays.root");
+    }
 
-    // ── pi0 -> gamma+gamma accidental background output ──────────────────────
-    DamsaPi0Collector::Instance()->WriteCSV(prefix + "pi0_decays.csv");
+    // Small key/value summary — stays CSV by design.
     DamsaPi0Collector::Instance()->WriteSummaryCSV(prefix + "pi0_summary.csv");
     WritePi0ROOTHistograms(prefix + "pi0_analysis.root", prefix);
 

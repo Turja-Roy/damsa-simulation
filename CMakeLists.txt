@@ -63,8 +63,8 @@ target_link_libraries(flux_converter PRIVATE ROOT::Core ROOT::RIO ROOT::ROOTNTup
 add_executable(subsample_alp_csv scripts/analysis/subsample_alp_csv.cpp)
 target_link_libraries(subsample_alp_csv PRIVATE ROOT::Core ROOT::RIO ROOT::ROOTNTuple ROOT::ROOTDataFrame)
 
-add_executable(csv2ntuple tools/csv2ntuple.cpp)
-target_link_libraries(csv2ntuple PRIVATE ROOT::Core ROOT::RIO ROOT::ROOTNTuple)
+add_executable(damsa_convert tools/damsa_convert.cpp)
+target_link_libraries(damsa_convert PRIVATE ROOT::Core ROOT::RIO ROOT::ROOTNTuple)
 
 # ── Self-check (no framework; run ./build/damsa_io_test) ────────────────────
 add_executable(damsa_io_test tests/test_damsa_io.cpp)
@@ -72,4 +72,4 @@ target_link_libraries(damsa_io_test PRIVATE ROOT::Core ROOT::RIO ROOT::ROOTNTupl
 
 add_custom_target(Damsa DEPENDS damsa damsa_opt damsa_alp_inject
                          analyze_gap_scan flux_converter subsample_alp_csv
-                         snr_separability damsa_io_test csv2ntuple)
+                         snr_separability damsa_io_test damsa_convert)

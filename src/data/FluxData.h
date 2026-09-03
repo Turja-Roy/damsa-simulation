@@ -11,6 +11,7 @@
 #include <map>
 #include <sys/stat.h>
 #include "damsa_config.h"
+#include "damsa_io.h"
 
 // Structure to hold complete particle information for flux extraction
 // Used primarily for photon flux output to alplib
@@ -64,6 +65,12 @@ public:
     void WritePhotonFluxCSV(const G4String& filename) const;
     void WriteBackgroundCSV(const G4String& filename) const;
     void WriteCaloFaceCSV(const G4String& filename) const;
+
+    // RNTuple equivalents. Target exit carries every particle: the photon-only
+    // and background (pdg != 22) CSVs were filtered views of the same rows, so
+    // downstream those become RDataFrame filters rather than separate files.
+    void WriteTargetExitNTuple(const G4String& filename) const;
+    void WriteCaloFaceNTuple(const G4String& filename) const;
     
     // Get binned photon spectrum for quick alplib input
     // Returns map of energy bin center (MeV) -> count
@@ -209,6 +216,46 @@ inline G4int DamsaFluxCollector::GetNeutronCount() const
     return count;
 }
 
+// Geant4 internal units -> the units the CSV columns are named for. Must match
+// the division done in the CSV writers or the two formats disagree.
+inline damsa::io::ParticleRow ToParticleRow(const FluxParticle& p)
+{
+    damsa::io::ParticleRow r;
+    r.pdg        = p.pdgCode;
+    r.trackID    = p.trackID;
+    r.eventID    = p.eventID;
+    r.energy_MeV = p.energy / MeV;
+    r.time_ns    = p.time / ns;
+    r.x_mm       = p.x / mm;
+    r.y_mm       = p.y / mm;
+    r.z_mm       = p.z / mm;
+    r.px         = p.px;
+    r.py         = p.py;
+    r.pz         = p.pz;
+    r.weight     = p.weight;
+    return r;
+}
+
+inline void DamsaFluxCollector::WriteTargetExitNTuple(const G4String& filename) const
+{
+    const std::string path = "output/" + filename;
+    damsa::io::NTupleWriter<damsa::io::ParticleRow> w(path);
+    for (const auto& p : fAllParticles) w.Fill(ToParticleRow(p));
+    w.Finish();
+    G4cout << "Target exit RNTuple written to: " << path
+           << " (" << fAllParticles.size() << " particles)" << G4endl;
+}
+
+inline void DamsaFluxCollector::WriteCaloFaceNTuple(const G4String& filename) const
+{
+    const std::string path = "output/" + filename;
+    damsa::io::NTupleWriter<damsa::io::ParticleRow> w(path);
+    for (const auto& p : fCaloFaceParticles) w.Fill(ToParticleRow(p));
+    w.Finish();
+    G4cout << "Calo face RNTuple written to: " << path
+           << " (" << fCaloFaceParticles.size() << " particles)" << G4endl;
+}
+
 inline void DamsaFluxCollector::WriteCSV(const G4String& filename) const
 {
     mkdir("output", 0755);
@@ -220,23 +267,11 @@ inline void DamsaFluxCollector::WriteCSV(const G4String& filename) const
         return;
     }
     
-    outFile << "pdg,energy_MeV,time_ns,x_mm,y_mm,z_mm,px,py,pz,weight,trackID,eventID" << std::endl;
-
-    for (const auto& p : fAllParticles) {
-        outFile << p.pdgCode << ","
-                << std::scientific << std::setprecision(6)
-                << p.energy/MeV << ","
-                << p.time/ns << ","
-                << p.x/mm << ","
-                << p.y/mm << ","
-                << p.z/mm << ","
-                << p.px << ","
-                << p.py << ","
-                << p.pz << ","
-                << p.weight << ","
-                << p.trackID << ","
-                << p.eventID << std::endl;
-    }
+    // Format lives in damsa_io.h so the RNTuple can be re-emitted and diffed
+    // against this file byte for byte.
+    outFile << damsa::io::kParticleCsvHeader << "\n";
+    for (const auto& p : fAllParticles)
+        damsa::io::WriteParticleCsvRow(outFile, ToParticleRow(p));
 
     outFile.close();
     G4cout << "Flux data written to: " << fullPath << " (" << fAllParticles.size() << " particles)" << G4endl;
@@ -335,24 +370,9 @@ inline void DamsaFluxCollector::WriteCaloFaceCSV(const G4String& filename) const
         return;
     }
     
-    outFile << "pdg,energy_MeV,time_ns,x_mm,y_mm,z_mm,px,py,pz,weight,trackID,eventID" << std::endl;
-    
-    // Write all particles at calorimeter face
-    for (const auto& p : fCaloFaceParticles) {
-        outFile << p.pdgCode << ","
-                << std::scientific << std::setprecision(6)
-                << p.energy/MeV << ","
-                << p.time/ns << ","
-                << p.x/mm << ","
-                << p.y/mm << ","
-                << p.z/mm << ","
-                << p.px << ","
-                << p.py << ","
-                << p.pz << ","
-                << p.weight << ","
-                << p.trackID << ","
-                << p.eventID << std::endl;
-    }
+    outFile << damsa::io::kParticleCsvHeader << "\n";
+    for (const auto& p : fCaloFaceParticles)
+        damsa::io::WriteParticleCsvRow(outFile, ToParticleRow(p));
     
     outFile.close();
     G4cout << "Calo face data written to: " << fullPath << " (" << fCaloFaceParticles.size() << " particles)" << G4endl;

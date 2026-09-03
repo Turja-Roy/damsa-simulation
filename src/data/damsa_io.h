@@ -30,6 +30,8 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
+#include <ostream>
 #include <map>
 #include <memory>
 #include <sstream>
@@ -237,6 +239,75 @@ inline std::vector<T> ReadNTuple(const std::string& path,
 inline std::uint64_t NTupleEntries(const std::string& path, const std::string& ntupleName)
 {
     return ROOT::RNTupleReader::Open(ntupleName, path)->GetNEntries();
+}
+
+// ── Legacy CSV emission ─────────────────────────────────────────────────────
+// The exact text format the FluxData.h / pi0DecayData.h writers produced, kept
+// in ONE place so the simulation writer and the verification tool cannot drift.
+//
+// These formats are lossy: particles at setprecision(6), pi0 at (4). So the
+// migration check is not "do the values match" (the RNTuple holds more digits)
+// but "does re-emitting the RNTuple reproduce the CSV byte for byte".
+
+inline constexpr const char* kParticleCsvHeader =
+    "pdg,energy_MeV,time_ns,x_mm,y_mm,z_mm,px,py,pz,weight,trackID,eventID";
+
+inline void WriteParticleCsvRow(std::ostream& o, const ParticleRow& p)
+{
+    o << p.pdg << ","
+      << std::scientific << std::setprecision(6)
+      << p.energy_MeV << ","
+      << p.time_ns << ","
+      << p.x_mm << ","
+      << p.y_mm << ","
+      << p.z_mm << ","
+      << p.px << ","
+      << p.py << ","
+      << p.pz << ","
+      << p.weight << ","
+      << p.trackID << ","
+      << p.eventID << "\n";
+}
+
+inline constexpr const char* kPi0CsvHeader =
+    "eventID,pi0TrackID,vx_mm,vy_mm,vz_mm,"
+    "gamma1TrackID,e1_MeV,px1,py1,pz1,"
+    "gamma2TrackID,e2_MeV,px2,py2,pz2,"
+    "openingAngle_deg,pi0Energy_MeV,"
+    "gamma1AtCalo,gamma2AtCalo,"
+    "gamma1GeomAccept,gamma2GeomAccept,"
+    "caloEnergyMeV";
+
+inline void WritePi0CsvRow(std::ostream& o, const Pi0Row& d)
+{
+    o << d.eventID    << ","
+      << d.pi0TrackID << ","
+      << std::scientific << std::setprecision(4)
+      << d.vx_mm << "," << d.vy_mm << "," << d.vz_mm << ","
+      << d.gamma1TrackID << ","
+      << d.e1_MeV << "," << d.px1 << "," << d.py1 << "," << d.pz1 << ","
+      << d.gamma2TrackID << ","
+      << d.e2_MeV << "," << d.px2 << "," << d.py2 << "," << d.pz2 << ","
+      << std::fixed << std::setprecision(4)
+      << d.openingAngle_deg << ","
+      << std::scientific
+      << d.pi0Energy_MeV << ","
+      << d.gamma1AtCalo << "," << d.gamma2AtCalo << ","
+      << d.gamma1GeomAccept << "," << d.gamma2GeomAccept << ","
+      << std::fixed << std::setprecision(4)
+      << d.caloEnergyMeV << "\n";
+}
+
+inline constexpr const char* kAlpDecayCsvHeader =
+    "E1_MeV,px1,py1,pz1,E2_MeV,px2,py2,pz2,weight_evts_per_day,decay_z_m";
+
+// alp_signal_pipeline.py wrote these via numpy at full float64 repr.
+inline void WriteAlpDecayCsvRow(std::ostream& o, const AlpDecayRow& r)
+{
+    o << std::scientific << std::setprecision(18)
+      << r.E1 << "," << r.px1 << "," << r.py1 << "," << r.pz1 << ","
+      << r.E2 << "," << r.px2 << "," << r.py2 << "," << r.pz2 << ","
+      << r.weight << "," << r.decayZ_m << "\n";
 }
 
 // ── CSV (for the files that stay CSV, by design) ────────────────────────────
