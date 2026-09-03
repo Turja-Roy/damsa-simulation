@@ -66,6 +66,16 @@ target_link_libraries(subsample_alp_csv PRIVATE ROOT::Core ROOT::RIO ROOT::ROOTN
 add_executable(damsa_convert tools/damsa_convert.cpp)
 target_link_libraries(damsa_convert PRIVATE ROOT::Core ROOT::RIO ROOT::ROOTNTuple)
 
+add_executable(damsa_alp_signal tools/damsa_alp_signal.cpp)
+target_include_directories(damsa_alp_signal PRIVATE ${PROJECT_SOURCE_DIR}/src/alp)
+target_link_libraries(damsa_alp_signal PRIVATE ROOT::Core ROOT::RIO ROOT::ROOTNTuple)
+
+add_executable(damsa_pileup tools/damsa_pileup.cpp)
+target_link_libraries(damsa_pileup PRIVATE ROOT::Core ROOT::RIO ROOT::ROOTNTuple)
+
+add_executable(damsa_merge tools/damsa_merge.cpp)
+target_link_libraries(damsa_merge PRIVATE ROOT::Core ROOT::RIO ROOT::ROOTNTuple)
+
 add_executable(alp_xcheck tools/alp_xcheck.cpp)
 target_include_directories(alp_xcheck PRIVATE ${PROJECT_SOURCE_DIR}/src/alp)
 
@@ -78,4 +88,4 @@ target_include_directories(alp_test PRIVATE ${PROJECT_SOURCE_DIR}/src/alp)
 
 add_custom_target(Damsa DEPENDS damsa damsa_opt damsa_alp_inject
                          analyze_gap_scan flux_converter subsample_alp_csv
-                         snr_separability damsa_io_test damsa_convert alp_xcheck alp_test)
+                         snr_separability damsa_io_test damsa_convert alp_xcheck alp_test damsa_alp_signal damsa_merge damsa_pileup)
