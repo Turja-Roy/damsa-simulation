@@ -15,7 +15,11 @@
 set -euo pipefail
 source jobs/env.sh
 
-cmake -S . -B build -DGEANT4_BUILD_MULTITHREADED=ON
+# env.sh exports Geant4_DIR when geant4-config is not on PATH.
+CMAKE_ARGS=(-DGEANT4_BUILD_MULTITHREADED=ON)
+[[ -n "${Geant4_DIR:-}" ]] && CMAKE_ARGS+=("-DGeant4_DIR=$Geant4_DIR")
+
+cmake -S . -B build "${CMAKE_ARGS[@]}"
 cmake --build build -j"${SLURM_CPUS_PER_TASK:-8}"
 
 echo "=== built targets ==="
