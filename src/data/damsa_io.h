@@ -12,20 +12,26 @@
 // alp_decay_photons_ma*MeV.csv (4M rows x 10 float64 at 18 significant digits).
 // RNTuple is columnar, compressed, and already available via ROOT.
 //
+// Storage is TTree, not RNTuple. RNTuple is ~10% smaller, but its stable
+// ROOT:: API only exists from 6.36; the cluster runs root/6.26, where RNTuple
+// is ROOT::Experimental:: with a different API and an unstable on-disk format.
+// TTree reads and writes identically from 6.26 through 6.40, and RDataFrame,
+// rootls and TBrowser all work on it. One backend everywhere beats two behind
+// version guards for a 10% file-size difference.
+//
 // Measured on a 300k-row slice of alp_decay_photons_ma1MeV.csv (75.6 MB ASCII):
-//     float64 + zstd-5   18.6 MB   4.1x
-//     float64 + zstd-9   18.5 MB   4.1x   (level buys nothing; stay at 5)
-//     float32 + zstd-5    8.8 MB   8.6x
+//     TTree   float64 + zstd-5   20.5 MB   3.7x   <- what this uses
+//     TTree   float64 + lzma-9   20.1 MB   3.8x   (much slower, not worth it)
+//     RNTuple float64 + zstd-5   18.6 MB   4.1x   (needs ROOT >= 6.36)
+//     RNTuple float32 + zstd-5    8.8 MB   8.6x
 // Fields are float64 so the CSV-vs-RNTuple cross-check is exact rather than
 // tolerance-limited. Direction cosines are unit vectors and energies are MC
 // quantities, so float32 is physically ample and would halve the size again.
 // ponytail: float64 for an exact cross-check; switch the Dbls() fields to float
 // once Phase 1 has passed, if 4.1x is not enough.
 
-#include <ROOT/RNTupleModel.hxx>
-#include <ROOT/RNTupleReader.hxx>
-#include <ROOT/RNTupleWriteOptions.hxx>
-#include <ROOT/RNTupleWriter.hxx>
+#include <TFile.h>
+#include <TTree.h>
 
 #include <array>
 #include <filesystem>
@@ -160,49 +166,60 @@ template <> struct Schema<AlpDecayRow> {
     }
 };
 
-// ── Generic RNTuple writer ──────────────────────────────────────────────────
+// ── Generic TTree writer ────────────────────────────────────────────────────
 // Streaming: Fill() one row at a time so multi-million-row outputs never need
 // to exist in memory all at once.
+//
+// Compression 505 = ZSTD level 5 (algorithm*100 + level). Level 9 and LZMA were
+// measured and buy under 2%, at much higher CPU cost.
 
 template <class T>
 class NTupleWriter {
 public:
     explicit NTupleWriter(const std::string& path,
-                          const std::string& ntupleName = Schema<T>::kName,
-                          int compression = 505)   // zstd level 5
+                          const std::string& treeName = Schema<T>::kName,
+                          int compression = 505)
     {
         EnsureParentDir(path);
-        auto model = ROOT::RNTupleModel::Create();
-        for (const auto& [name, mem] : Schema<T>::Ints())
-            fInts.push_back(model->MakeField<int>(name));
-        for (const auto& [name, mem] : Schema<T>::Dbls())
-            fDbls.push_back(model->MakeField<double>(name));
+        fFile = TFile::Open(path.c_str(), "RECREATE", "", compression);
+        if (!fFile || fFile->IsZombie())
+            throw std::runtime_error("NTupleWriter: cannot create " + path);
 
-        ROOT::RNTupleWriteOptions opts;
-        opts.SetCompression(compression);
-        fWriter = ROOT::RNTupleWriter::Recreate(std::move(model), ntupleName, path, opts);
+        fTree = new TTree(treeName.c_str(), treeName.c_str());
+        fTree->SetDirectory(fFile);
+        for (const auto& [name, mem] : Schema<T>::Ints()) fTree->Branch(name, &(fRow.*mem));
+        for (const auto& [name, mem] : Schema<T>::Dbls()) fTree->Branch(name, &(fRow.*mem));
     }
 
     void Fill(const T& row)
     {
-        std::size_t i = 0;
-        for (const auto& [name, mem] : Schema<T>::Ints()) *fInts[i++] = row.*mem;
-        i = 0;
-        for (const auto& [name, mem] : Schema<T>::Dbls()) *fDbls[i++] = row.*mem;
-        fWriter->Fill();
+        fRow = row;               // branches point into fRow
+        fTree->Fill();
         ++fEntries;
     }
 
     std::size_t Entries() const { return fEntries; }
 
     // Flush and close. Safe to call more than once; the destructor calls it.
-    void Finish() { fWriter.reset(); }
+    void Finish()
+    {
+        if (!fFile) return;
+        fFile->cd();
+        fTree->Write();
+        fFile->Close();
+        delete fFile;             // deletes the tree it owns
+        fFile = nullptr;
+        fTree = nullptr;
+    }
     ~NTupleWriter() { Finish(); }
 
+    NTupleWriter(const NTupleWriter&) = delete;
+    NTupleWriter& operator=(const NTupleWriter&) = delete;
+
 private:
-    std::vector<std::shared_ptr<int>>    fInts;
-    std::vector<std::shared_ptr<double>> fDbls;
-    std::unique_ptr<ROOT::RNTupleWriter> fWriter;
+    TFile* fFile = nullptr;
+    TTree* fTree = nullptr;
+    T      fRow{};
     std::size_t fEntries = 0;
 };
 
@@ -215,30 +232,71 @@ inline void WriteNTuple(const std::string& path, const std::vector<T>& rows,
     for (const auto& r : rows) w.Fill(r);
 }
 
-// ── Generic RNTuple reader ──────────────────────────────────────────────────
+// ── Generic TTree reader ────────────────────────────────────────────────────
+// Streaming reader, so the caller can process multi-million-row files without
+// materialising them. ReadNTuple() below is the load-everything convenience.
+
+template <class T>
+class NTupleReader {
+public:
+    explicit NTupleReader(const std::string& path,
+                          const std::string& treeName = Schema<T>::kName)
+    {
+        fFile = TFile::Open(path.c_str(), "READ");
+        if (!fFile || fFile->IsZombie())
+            throw std::runtime_error("NTupleReader: cannot open " + path);
+        fTree = dynamic_cast<TTree*>(fFile->Get(treeName.c_str()));
+        if (!fTree)
+            throw std::runtime_error("NTupleReader: no tree '" + treeName + "' in " + path);
+
+        for (const auto& [name, mem] : Schema<T>::Ints()) fTree->SetBranchAddress(name, &(fRow.*mem));
+        for (const auto& [name, mem] : Schema<T>::Dbls()) fTree->SetBranchAddress(name, &(fRow.*mem));
+    }
+
+    std::uint64_t Entries() const { return static_cast<std::uint64_t>(fTree->GetEntries()); }
+
+    const T& At(std::uint64_t i) { fTree->GetEntry(static_cast<Long64_t>(i)); return fRow; }
+
+    ~NTupleReader() { if (fFile) { fFile->Close(); delete fFile; } }
+
+    NTupleReader(const NTupleReader&) = delete;
+    NTupleReader& operator=(const NTupleReader&) = delete;
+
+private:
+    TFile* fFile = nullptr;
+    TTree* fTree = nullptr;
+    T      fRow{};
+};
 
 template <class T>
 inline std::vector<T> ReadNTuple(const std::string& path,
-                                 const std::string& ntupleName = Schema<T>::kName)
+                                 const std::string& treeName = Schema<T>::kName)
 {
-    auto reader = ROOT::RNTupleReader::Open(ntupleName, path);
-    const auto n = reader->GetNEntries();
-
-    std::vector<T> rows(n);
-    for (const auto& [name, mem] : Schema<T>::Ints()) {
-        auto view = reader->GetView<int>(name);
-        for (std::uint64_t i = 0; i < n; ++i) rows[i].*mem = view(i);
-    }
-    for (const auto& [name, mem] : Schema<T>::Dbls()) {
-        auto view = reader->GetView<double>(name);
-        for (std::uint64_t i = 0; i < n; ++i) rows[i].*mem = view(i);
-    }
+    NTupleReader<T> r(path, treeName);
+    const auto n = r.Entries();
+    std::vector<T> rows;
+    rows.reserve(n);
+    for (std::uint64_t i = 0; i < n; ++i) rows.push_back(r.At(i));
     return rows;
 }
 
-inline std::uint64_t NTupleEntries(const std::string& path, const std::string& ntupleName)
+// Entry count without binding any schema, so it works for any tree.
+// Returns -1 if the file or tree is missing.
+inline long long NTupleEntries(const std::string& path, const std::string& treeName)
 {
-    return ROOT::RNTupleReader::Open(ntupleName, path)->GetNEntries();
+    std::unique_ptr<TFile> f(TFile::Open(path.c_str(), "READ"));
+    if (!f || f->IsZombie()) return -1;
+    auto* t = dynamic_cast<TTree*>(f->Get(treeName.c_str()));
+    return t ? t->GetEntries() : -1;
+}
+
+// Which of our schemas does this file hold? Empty if none.
+inline std::string SniffTree(const std::string& path)
+{
+    for (const char* n : {Schema<AlpDecayRow>::kName, Schema<Pi0Row>::kName,
+                          Schema<ParticleRow>::kName})
+        if (NTupleEntries(path, n) >= 0) return n;
+    return "";
 }
 
 // ── Legacy CSV emission ─────────────────────────────────────────────────────

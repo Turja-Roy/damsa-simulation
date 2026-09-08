@@ -13,9 +13,9 @@ find_package(Geant4 REQUIRED ui_all vis_all multithread)
 include(${Geant4_USE_FILE})
 
 # Scoped ROOT components instead of shelling out to `root-config --libs`, which
-# linked all of ROOT into every target. ROOTNTuple/ROOTDataFrame are the storage layer.
+# linked all of ROOT into every target. Tree/ROOTDataFrame are the storage layer.
 find_package(ROOT REQUIRED COMPONENTS
-    Core RIO Hist Graf Graf3d Gpad Tree MathCore Physics ROOTNTuple ROOTDataFrame)
+    Core RIO Hist Graf Graf3d Gpad Tree MathCore Physics ROOTDataFrame)
 
 set(DAMSA_INCLUDE_DIRS
     ${PROJECT_SOURCE_DIR}/src/detector
@@ -41,7 +41,7 @@ add_library(damsa_core STATIC ${sources} ${headers})
 target_include_directories(damsa_core PUBLIC ${DAMSA_INCLUDE_DIRS})
 target_link_libraries(damsa_core PUBLIC ${Geant4_LIBRARIES} ROOT::Core ROOT::RIO
     ROOT::Hist ROOT::Graf ROOT::Graf3d ROOT::Gpad ROOT::Tree ROOT::MathCore
-    ROOT::Physics ROOT::ROOTNTuple ROOT::ROOTDataFrame)
+    ROOT::Physics ROOT::ROOTDataFrame)
 
 # ── Geant4 executables (mains live at repo root, not in the src/ glob) ───────
 foreach(app damsa damsa_opt damsa_alp_inject)
@@ -58,30 +58,30 @@ target_link_libraries(snr_separability PRIVATE ROOT::Core ROOT::Hist ROOT::Graf 
 
 # damsa_io.h is deliberately Geant4-free so these can read the same RNTuple files.
 add_executable(flux_converter scripts/pipeline/flux_converter.cpp)
-target_link_libraries(flux_converter PRIVATE ROOT::Core ROOT::RIO ROOT::ROOTNTuple ROOT::ROOTDataFrame)
+target_link_libraries(flux_converter PRIVATE ROOT::Core ROOT::RIO ROOT::Tree ROOT::ROOTDataFrame)
 
 add_executable(subsample_alp_csv scripts/analysis/subsample_alp_csv.cpp)
-target_link_libraries(subsample_alp_csv PRIVATE ROOT::Core ROOT::RIO ROOT::ROOTNTuple ROOT::ROOTDataFrame)
+target_link_libraries(subsample_alp_csv PRIVATE ROOT::Core ROOT::RIO ROOT::Tree ROOT::ROOTDataFrame)
 
 add_executable(damsa_convert tools/damsa_convert.cpp)
-target_link_libraries(damsa_convert PRIVATE ROOT::Core ROOT::RIO ROOT::ROOTNTuple)
+target_link_libraries(damsa_convert PRIVATE ROOT::Core ROOT::RIO ROOT::Tree)
 
 add_executable(damsa_alp_signal tools/damsa_alp_signal.cpp)
 target_include_directories(damsa_alp_signal PRIVATE ${PROJECT_SOURCE_DIR}/src/alp)
-target_link_libraries(damsa_alp_signal PRIVATE ROOT::Core ROOT::RIO ROOT::ROOTNTuple)
+target_link_libraries(damsa_alp_signal PRIVATE ROOT::Core ROOT::RIO ROOT::Tree)
 
 add_executable(damsa_pileup tools/damsa_pileup.cpp)
-target_link_libraries(damsa_pileup PRIVATE ROOT::Core ROOT::RIO ROOT::ROOTNTuple)
+target_link_libraries(damsa_pileup PRIVATE ROOT::Core ROOT::RIO ROOT::Tree)
 
 add_executable(damsa_merge tools/damsa_merge.cpp)
-target_link_libraries(damsa_merge PRIVATE ROOT::Core ROOT::RIO ROOT::ROOTNTuple)
+target_link_libraries(damsa_merge PRIVATE ROOT::Core ROOT::RIO ROOT::Tree)
 
 add_executable(alp_xcheck tools/alp_xcheck.cpp)
 target_include_directories(alp_xcheck PRIVATE ${PROJECT_SOURCE_DIR}/src/alp)
 
 # ── Self-check (no framework; run ./build/damsa_io_test) ────────────────────
 add_executable(damsa_io_test tests/test_damsa_io.cpp)
-target_link_libraries(damsa_io_test PRIVATE ROOT::Core ROOT::RIO ROOT::ROOTNTuple)
+target_link_libraries(damsa_io_test PRIVATE ROOT::Core ROOT::RIO ROOT::Tree)
 
 add_executable(alp_test tests/test_alp.cpp)
 target_include_directories(alp_test PRIVATE ${PROJECT_SOURCE_DIR}/src/alp)

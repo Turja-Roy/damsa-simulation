@@ -111,32 +111,20 @@ std::size_t ToCsv(const std::string& inPath, const std::string& outPath,
                   const char* header, void (*emit)(std::ostream&, const T&),
                   long limit)
 {
-    auto reader = ROOT::RNTupleReader::Open(Schema<T>::kName, inPath);
-    std::uint64_t n = reader->GetNEntries();
+    NTupleReader<T> reader(inPath);
+    std::uint64_t n = reader.Entries();
     if (limit > 0 && n > static_cast<std::uint64_t>(limit)) n = limit;
-
-    // Views are created once, not per entry.
-    std::vector<ROOT::RNTupleView<int>>    intViews;
-    std::vector<ROOT::RNTupleView<double>> dblViews;
-    for (const auto& [name, mem] : Schema<T>::Ints())
-        intViews.push_back(reader->template GetView<int>(name));
-    for (const auto& [name, mem] : Schema<T>::Dbls())
-        dblViews.push_back(reader->template GetView<double>(name));
 
     EnsureParentDir(outPath);
     std::ofstream out(outPath);
     if (!out.is_open()) throw std::runtime_error("cannot write " + outPath);
     out << header << "\n";
 
+    // One entry at a time; these files do not fit in memory.
     for (std::uint64_t i = 0; i < n; ++i) {
-        T row;
-        std::size_t k = 0;
-        for (const auto& [name, mem] : Schema<T>::Ints()) row.*mem = intViews[k++](i);
-        k = 0;
-        for (const auto& [name, mem] : Schema<T>::Dbls()) row.*mem = dblViews[k++](i);
-        emit(out, row);
-        if ((i + 1) % 500000 == 0) std::fprintf(stderr, "  %llu rows...\n",
-                                                (unsigned long long)(i + 1));
+        emit(out, reader.At(i));
+        if ((i + 1) % 500000 == 0)
+            std::fprintf(stderr, "  %llu rows...\n", (unsigned long long)(i + 1));
     }
     return n;
 }
@@ -174,13 +162,11 @@ int main(int argc, char** argv)
 
     std::optional<std::string> schema;
     if (reverse) {
-        for (const char* s : {"alp", "pi0", "particle"}) {
-            const char* nt = (std::strcmp(s, "alp") == 0)   ? Schema<AlpDecayRow>::kName
-                           : (std::strcmp(s, "pi0") == 0)   ? Schema<Pi0Row>::kName
-                                                            : Schema<ParticleRow>::kName;
-            try { ROOT::RNTupleReader::Open(nt, in); schema = s; break; } catch (...) {}
-        }
-        if (!schema) { std::fprintf(stderr, "error: no known RNTuple in %s\n", in.c_str()); return 1; }
+        const std::string tree = SniffTree(in);
+        if (tree.empty()) { std::fprintf(stderr, "error: no known tree in %s\n", in.c_str()); return 1; }
+        if      (tree == Schema<AlpDecayRow>::kName) schema = "alp";
+        else if (tree == Schema<Pi0Row>::kName)      schema = "pi0";
+        else                                         schema = "particle";
     } else {
         schema = SniffSchema(in);
         if (!schema) { std::fprintf(stderr, "error: unrecognized CSV header in %s\n", in.c_str()); return 1; }
