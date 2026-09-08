@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include <iostream>
 
 #include "G4MTRunManager.hh"
@@ -15,8 +16,24 @@
 
 int main (int argc, char *argv[])
 {
+    // Thread count: honour the batch allocation before falling back to the
+    // whole machine. G4GetNumberOfCores() reports every core on the node, which
+    // on a shared cluster oversubscribes a partial allocation badly.
+    // SLURM_CPUS_PER_TASK is set by sbatch -c; G4FORCENUMBEROFTHREADS is
+    // Geant4's own override and wins if both are present.
+    G4int nThreads = G4Threading::G4GetNumberOfCores();
+    if (const char* env = std::getenv("SLURM_CPUS_PER_TASK")) {
+        const int n = std::atoi(env);
+        if (n > 0) nThreads = n;
+    }
+    if (const char* env = std::getenv("G4FORCENUMBEROFTHREADS")) {
+        const int n = std::atoi(env);
+        if (n > 0) nThreads = n;
+    }
+
     G4MTRunManager *runManager = new G4MTRunManager();
-    runManager->SetNumberOfThreads(G4Threading::G4GetNumberOfCores());
+    runManager->SetNumberOfThreads(nThreads);
+    G4cout << "[damsa] worker threads: " << nThreads << G4endl;
     
     runManager->SetUserInitialization(new DamsaDetectorConstruction());
     runManager->SetUserInitialization(new DamsaPhysicsList());
