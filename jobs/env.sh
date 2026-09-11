@@ -56,6 +56,22 @@ if type module >/dev/null 2>&1; then
     damsa_load cmake  "${DAMSA_CMAKE_MODULE:-}"  cmake                                     || true
 fi
 
+# ── Python ──────────────────────────────────────────────────────────────────
+# The system python3 has no numpy. The cross-checks (tools/alp_xcheck.py,
+# tools/alp_signal_xcheck.py) and alplib itself need numpy/scipy/mpmath, so
+# activate a virtualenv if one is around. Override with DAMSA_VENV.
+for _venv in "${DAMSA_VENV:-}" \
+             "$PWD/.venv" \
+             "$PWD/../damsa-simulation/.venv" \
+             "$HOME/damsa-simulation/.venv"; do
+    if [[ -n "$_venv" && -r "$_venv/bin/activate" ]]; then
+        # shellcheck disable=SC1091
+        source "$_venv/bin/activate"
+        echo "[env] python venv: $_venv"
+        break
+    fi
+done
+
 # Geant4 data files. The module usually does this; this covers sites where it
 # does not. Set DAMSA_GEANT4_ENV to point at a specific geant4env.sh.
 for _g4 in "${DAMSA_GEANT4_ENV:-}" \
@@ -76,6 +92,7 @@ WORKDIR="${WORKDIR:-${SLURM_SUBMIT_DIR:-$PWD}}"
 cd "$WORKDIR" || { echo "[env] cannot cd to $WORKDIR"; exit 1; }
 
 # ── Report and gate ─────────────────────────────────────────────────────────
+_py=$(python3 -c 'import numpy; print("numpy "+numpy.__version__)' 2>/dev/null || echo "numpy MISSING")
 _root=$(root-config --version 2>/dev/null || echo MISSING)
 _g4v=$(geant4-config --version 2>/dev/null || echo MISSING)
 _cmake=$(cmake --version 2>/dev/null | head -1 || echo MISSING)
@@ -83,12 +100,13 @@ _cmake=$(cmake --version 2>/dev/null | head -1 || echo MISSING)
 echo "[env] host=$(hostname)  job=${SLURM_JOB_ID:-none}  cpus=${SLURM_CPUS_PER_TASK:-unset}"
 echo "[env] workdir=$WORKDIR"
 echo "[env] root=$_root  geant4=$_g4v"
-echo "[env] $_cmake"
+echo "[env] $_cmake  python=$(python3 --version 2>&1 | cut -d' ' -f2)  $_py"
 
 # Any ROOT version is fine: storage is TTree, which reads and writes identically
 # from 6.26 through 6.40. (RNTuple would have required >= 6.36.)
 _bad=0
 [[ "$_root" == MISSING ]] && { echo "[env] ERROR: root-config not on PATH"; _bad=1; }
+[[ "$_py" == "numpy MISSING" ]] && echo "[env] WARNING: no numpy -- the Python half of 01_verify will not run"
 
 # Geant4 does not need geant4-config on PATH: CMake only needs Geant4Config.cmake,
 # which -DGeant4_DIR can point at directly. Export Geant4_DIR (or DAMSA_GEANT4_DIR)
