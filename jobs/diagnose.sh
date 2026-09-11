@@ -46,12 +46,19 @@ grep -n -e 'module load' -e thisroot -e geant4env -e Geant4_DIR \
 
 echo
 echo "########## 5. Geant4 / ROOT installs on disk ##########"
+# NEVER search $HOME or /cvmfs here: home is NFS and /cvmfs is autofs, so a
+# depth-6 walk can hang for an hour. Stay on local filesystems, bounded depth,
+# with a hard timeout.
+echo "--- what is under /opt ---"
+timeout 20 ls /opt 2>/dev/null | head -20
 echo "--- Geant4Config.cmake (this is what -DGeant4_DIR needs) ---"
-find /opt /usr/local /cvmfs ~ -maxdepth 6 -name Geant4Config.cmake 2>/dev/null | head -5
-echo "--- thisroot.sh ---"
-find /opt /usr/local /cvmfs ~ -maxdepth 6 -name thisroot.sh 2>/dev/null | head -5
-echo "--- CVMFS (many sites ship LCG stacks here) ---"
-ls /cvmfs 2>/dev/null | head
+timeout 60 find /opt /usr/local /usr/lib64 /usr/share -xdev -maxdepth 5 \
+    -name Geant4Config.cmake 2>/dev/null | head -5
+echo "--- thisroot.sh / ROOTConfig.cmake ---"
+timeout 60 find /opt /usr/local /usr/lib64 /usr/share -xdev -maxdepth 5 \
+    \( -name thisroot.sh -o -name ROOTConfig.cmake \) 2>/dev/null | head -5
+echo "--- CVMFS repos (listing only, never descend) ---"
+timeout 10 ls /cvmfs 2>/dev/null | head || echo "  (no /cvmfs, or autofs did not respond)"
 
 echo
 echo "########## 6. slurm ##########"
