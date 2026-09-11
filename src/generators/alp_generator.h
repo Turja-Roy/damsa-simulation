@@ -2,17 +2,24 @@
 #define ALP_GENERATOR_H
 
 // ALP decay photon injection generator for DAMSA
-// Reads alplib-exported decay photon CSV (γγ pairs from a→γγ) and fires them
-// as primary particles into Geant4 for full detector response simulation.
+// Reads exported decay photons (γγ pairs from a→γγ) and fires them as primary
+// particles into Geant4 for full detector response simulation.
 //
-// CSV format (produced by scripts/pipeline/alp_signal_pipeline.py):
-//   E1_MeV,px1,py1,pz1,E2_MeV,px2,py2,pz2,weight[,decay_z_m]
-// where px/py/pz are momentum components, weight is events/day for that
-// decay pair, and decay_z_m (optional) is the sampled ALP decay-vertex z in
-// metres downstream of the target centre (legacy 9-column files: 0).
+// Two input formats, chosen by extension:
+//   *.root  TTree "alp_decays", written by tools/damsa_alp_signal  [preferred]
+//   *.csv   the pre-migration format from scripts/pipeline/alp_signal_pipeline.py
+//
+// Both carry the same columns:
+//   E1_MeV,px1,py1,pz1,E2_MeV,px2,py2,pz2,weight_evts_per_day[,decay_z_m]
+// where px/py/pz are momentum components, weight is events/day for that decay
+// pair, and decay_z_m is the sampled ALP decay-vertex z in metres downstream of
+// the target centre (legacy 9-column CSVs: 0).
+//
+// The TTree is ~4x smaller (243 MB vs 995 MB at ma=100 MeV) and is what the
+// pipeline now produces; the CSV reader is kept so existing files still load.
 //
 // Usage in action.h Build():
-//   SetUserAction(new DamsaALPDecayGenerator("alp_decay_photons_ma100MeV.csv"));
+//   SetUserAction(new DamsaALPDecayGenerator("alp_decay_photons_ma100MeV.root"));
 
 #include "G4VUserPrimaryGeneratorAction.hh"
 #include "G4ParticleGun.hh"
@@ -21,12 +28,15 @@
 #include "G4Event.hh"
 #include "G4ThreeVector.hh"
 
+#include "damsa_io.h"
+
 #include <fstream>
 #include <sstream>
 #include <vector>
 #include <string>
 #include <array>
 #include <iostream>
+#include <mutex>
 #include <stdexcept>
 
 struct ALPDecayEvent {
@@ -41,12 +51,12 @@ struct ALPDecayEvent {
 class DamsaALPDecayGenerator : public G4VUserPrimaryGeneratorAction
 {
 public:
-    // csv_path: path to alplib decay photon CSV
+    // path: decay photon file, .root (TTree) or .csv
     // vertex_z_cm: z position of the ALP production/decay vertex, in cm.
     //   Default = −45 cm = target centre (target rear at −40 cm, half-length 5 cm).
     // refire_factor: number of times each input row is re-fired (for better calo
     //   response statistics). Row weight is divided by this factor.
-    explicit DamsaALPDecayGenerator(const std::string& csv_path,
+    explicit DamsaALPDecayGenerator(const std::string& path,
                                     G4double vertex_z_cm = -45.0,
                                     G4int refire_factor = 1)
     : fVertexZ(vertex_z_cm * cm), fRefireFactor(refire_factor)
@@ -57,13 +67,13 @@ public:
         fParticleGun->SetParticleDefinition(gamma);
         fParticleGun->SetParticlePosition(G4ThreeVector(0., 0., fVertexZ));
 
-        LoadEvents(csv_path);
+        fEvents = &LoadShared(path, fRejectedRows);
 
-        if (fEvents.empty()) {
-            throw std::runtime_error("DamsaALPDecayGenerator: no events loaded from " + csv_path);
+        if (fEvents->empty()) {
+            throw std::runtime_error("DamsaALPDecayGenerator: no events loaded from " + path);
         }
-        G4cout << "[ALP Generator] Loaded " << fEvents.size()
-               << " decay pairs from " << csv_path
+        G4cout << "[ALP Generator] Loaded " << fEvents->size()
+               << " decay pairs from " << path
                << " (" << fRejectedRows << " zero-weight rows skipped)"
                << ", refire factor = " << fRefireFactor << G4endl;
     }
@@ -80,8 +90,8 @@ public:
         // regardless of how events are scheduled across threads.
         const std::size_t idx =
             (static_cast<std::size_t>(event->GetEventID()) / fRefireFactor)
-            % fEvents.size();
-        const ALPDecayEvent& ev = fEvents[idx];
+            % fEvents->size();
+        const ALPDecayEvent& ev = (*fEvents)[idx];
 
         // Store current event weight for retrieval by the stepping action.
         // Thread-local: stepping for this event runs on this same thread.
@@ -115,16 +125,16 @@ public:
 
     G4double GetTotalWeight() const {
         double total = 0.0;
-        for (const auto& ev : fEvents) total += ev.weight;
+        for (const auto& ev : *fEvents) total += ev.weight;
         return total;
     }
 
-    G4int GetNEvents() const { return static_cast<G4int>(fEvents.size()); }
+    G4int GetNEvents() const { return static_cast<G4int>(fEvents->size()); }
 
 private:
     G4ParticleGun* fParticleGun;
     G4double fVertexZ;
-    std::vector<ALPDecayEvent> fEvents;
+    const std::vector<ALPDecayEvent>* fEvents = nullptr;   // borrowed, see LoadShared
     G4int  fRefireFactor = 1;     // each input row fired this many times
     G4int  fRejectedRows = 0;     // number of zero-weight rows skipped during load
 
@@ -132,7 +142,74 @@ private:
     // Per-thread current event weight (events over exposure / refire_factor).
     static thread_local G4double fgCurrentEventWeight;
 
-    void LoadEvents(const std::string& csv_path)
+    // Geant4 MT calls Build() on every worker, so one generator is constructed
+    // per thread. Loading per instance would multiply the I/O and the memory (a
+    // 4M-row file is ~300 MB) by the thread count, and concurrent reads of the
+    // same ROOT file are not safe -- doing so aborts with "gInterpreter not
+    // initialized". Load once, share the immutable result.
+    //
+    // The path is the same for every worker (set once in DamsaConfig), so the
+    // first caller wins; a mismatch means the caller changed it mid-run.
+    static const std::vector<ALPDecayEvent>& LoadShared(const std::string& path,
+                                                        G4int& rejectedOut)
+    {
+        static std::vector<ALPDecayEvent> events;
+        static std::string loadedPath;
+        static G4int rejected = 0;
+        static std::once_flag once;
+
+        std::call_once(once, [&] {
+            loadedPath = path;
+            LoadInto(path, events, rejected);
+        });
+
+        if (path != loadedPath) {
+            throw std::runtime_error(
+                "DamsaALPDecayGenerator: already loaded '" + loadedPath +
+                "', cannot also load '" + path + "' in the same process");
+        }
+        rejectedOut = rejected;
+        return events;
+    }
+
+    // Dispatch on extension. TTree is what damsa_alp_signal writes; the CSV
+    // reader stays for the pre-migration alp_decay_photons_ma*MeV.csv files
+    // (including legacy 9-column ones without decay_z_m).
+    static void LoadInto(const std::string& path,
+                         std::vector<ALPDecayEvent>& out, G4int& rejected)
+    {
+        if (path.size() > 5 && path.compare(path.size() - 5, 5, ".root") == 0)
+            LoadRoot(path, out, rejected);
+        else
+            LoadCsv(path, out, rejected);
+    }
+
+    static void LoadRoot(const std::string& path,
+                         std::vector<ALPDecayEvent>& out, G4int& rejected)
+    {
+        // Streamed, not ReadNTuple(): a 4M-row file would otherwise exist twice
+        // over while the returned vector is copied into fEvents.
+        damsa::io::NTupleReader<damsa::io::AlpDecayRow> reader(path);
+        const auto n = reader.Entries();
+        out.reserve(n);
+
+        for (std::uint64_t i = 0; i < n; ++i) {
+            const auto& r = reader.At(i);
+            // Same rejection as the CSV path: alplib emits zero-weight rows for
+            // grid bins with no ALP production, and firing them only wastes
+            // Geant4 events.
+            if (r.weight <= 0.0) { ++rejected; continue; }
+            ALPDecayEvent ev;
+            ev.E1 = r.E1; ev.px1 = r.px1; ev.py1 = r.py1; ev.pz1 = r.pz1;
+            ev.E2 = r.E2; ev.px2 = r.px2; ev.py2 = r.py2; ev.pz2 = r.pz2;
+            ev.weight   = r.weight;
+            ev.decayZ_m = r.decayZ_m;
+            out.push_back(ev);
+        }
+    }
+
+    static void LoadCsv(const std::string& csv_path,
+                        std::vector<ALPDecayEvent>& out, G4int& rejected)
     {
         std::ifstream f(csv_path);
         if (!f.is_open()) {
@@ -167,10 +244,10 @@ private:
                 // masses, high-E for light masses). Keeping them only wastes
                 // Geant4 events and produces zero-weight calo-face records.
                 if (ev.weight <= 0.0) {
-                    ++fRejectedRows;
+                    ++rejected;
                     continue;
                 }
-                fEvents.push_back(ev);
+                out.push_back(ev);
             }
         }
     }

@@ -23,6 +23,8 @@
 #include <string>
 #include <cstdlib>
 
+#include <TROOT.h>
+
 #include "G4MTRunManager.hh"
 #include "G4Threading.hh"
 #include "G4UImanager.hh"
@@ -49,9 +51,14 @@ std::string basenameNoExt(const std::string& path) {
 
 int main(int argc, char* argv[])
 {
+    // Must happen on the main thread before any worker touches ROOT. The decay
+    // file is read from a Geant4 worker (Build() runs per thread), and without
+    // this the TTree read aborts with "gInterpreter not initialized".
+    ROOT::EnableThreadSafety();
+
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0]
-                  << " <alp_decay_photons.csv> [macro.mac] [refire_factor]\n"
+                  << " <alp_decay_photons.root|.csv> [macro.mac] [refire_factor]\n"
                   << "  refire_factor: number of times each row is re-fired (default: 1)\n";
         return 1;
     }
