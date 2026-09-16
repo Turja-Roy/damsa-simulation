@@ -70,6 +70,26 @@ add_executable(damsa_alp_signal tools/damsa_alp_signal.cpp)
 target_include_directories(damsa_alp_signal PRIVATE ${PROJECT_SOURCE_DIR}/src/alp)
 target_link_libraries(damsa_alp_signal PRIVATE ROOT::Core ROOT::RIO ROOT::Tree)
 
+add_executable(damsa_joint_scan tools/damsa_joint_scan.cpp)
+target_include_directories(damsa_joint_scan PRIVATE ${PROJECT_SOURCE_DIR}/src/alp)
+target_link_libraries(damsa_joint_scan PRIVATE ROOT::Core ROOT::RIO ROOT::Tree
+    ROOT::Hist ROOT::Graf ROOT::Gpad)
+
+add_executable(damsa_combine_pareto tools/damsa_combine_pareto.cpp)
+target_include_directories(damsa_combine_pareto PRIVATE ${PROJECT_SOURCE_DIR}/src/alp)
+target_link_libraries(damsa_combine_pareto PRIVATE ROOT::Core ROOT::RIO ROOT::Tree
+    ROOT::Hist ROOT::Graf ROOT::Gpad)
+
+add_executable(damsa_target_projection tools/damsa_target_projection.cpp)
+target_include_directories(damsa_target_projection PRIVATE ${PROJECT_SOURCE_DIR}/src/alp)
+target_link_libraries(damsa_target_projection PRIVATE ROOT::Core ROOT::RIO ROOT::Tree
+    ROOT::Hist ROOT::Graf ROOT::Gpad)
+
+add_executable(damsa_report tools/damsa_report.cpp)
+target_include_directories(damsa_report PRIVATE ${PROJECT_SOURCE_DIR}/src/alp)
+target_link_libraries(damsa_report PRIVATE ROOT::Core ROOT::RIO ROOT::Tree
+    ROOT::Hist ROOT::Graf ROOT::Gpad)
+
 add_executable(damsa_pileup tools/damsa_pileup.cpp)
 target_link_libraries(damsa_pileup PRIVATE ROOT::Core ROOT::RIO ROOT::Tree)
 
@@ -88,4 +108,4 @@ target_include_directories(alp_test PRIVATE ${PROJECT_SOURCE_DIR}/src/alp)
 
 add_custom_target(Damsa DEPENDS damsa damsa_opt damsa_alp_inject
                          analyze_gap_scan flux_converter subsample_alp_csv
-                         snr_separability damsa_io_test damsa_convert alp_xcheck alp_test damsa_alp_signal damsa_merge damsa_pileup)
+                         snr_separability damsa_io_test damsa_convert alp_xcheck alp_test damsa_alp_signal damsa_merge damsa_pileup damsa_joint_scan damsa_combine_pareto damsa_target_projection damsa_report)
