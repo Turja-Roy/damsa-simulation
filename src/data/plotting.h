@@ -137,6 +137,13 @@ inline void CreatePlotDirectories() {
 }
 
 // Save canvas in PNG format
+// Qualitative series colours, distinguishable in both print and on screen.
+inline Color_t Palette(int i) {
+    static const Color_t c[] = {kAzure + 2, kRed + 1, kGreen + 2, kOrange + 7,
+                                kMagenta + 1, kCyan + 2, kGray + 2, kViolet + 1};
+    return c[((i % 8) + 8) % 8];
+}
+
 inline void SaveCanvas(TCanvas* c, const std::string& path) {
     c->SaveAs((path + ".png").c_str());
 }

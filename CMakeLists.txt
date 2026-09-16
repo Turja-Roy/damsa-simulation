@@ -60,8 +60,8 @@ target_link_libraries(snr_separability PRIVATE ROOT::Core ROOT::Hist ROOT::Graf 
 add_executable(flux_converter scripts/pipeline/flux_converter.cpp)
 target_link_libraries(flux_converter PRIVATE ROOT::Core ROOT::RIO ROOT::Tree ROOT::ROOTDataFrame)
 
-add_executable(subsample_alp_csv scripts/analysis/subsample_alp_csv.cpp)
-target_link_libraries(subsample_alp_csv PRIVATE ROOT::Core ROOT::RIO ROOT::Tree ROOT::ROOTDataFrame)
+add_executable(damsa_subsample tools/damsa_subsample.cpp)
+target_link_libraries(damsa_subsample PRIVATE ROOT::Core ROOT::RIO ROOT::Tree)
 
 add_executable(damsa_convert tools/damsa_convert.cpp)
 target_link_libraries(damsa_convert PRIVATE ROOT::Core ROOT::RIO ROOT::Tree)
@@ -85,6 +85,19 @@ target_include_directories(damsa_target_projection PRIVATE ${PROJECT_SOURCE_DIR}
 target_link_libraries(damsa_target_projection PRIVATE ROOT::Core ROOT::RIO ROOT::Tree
     ROOT::Hist ROOT::Graf ROOT::Gpad)
 
+add_executable(damsa_signal_plots tools/damsa_signal_plots.cpp)
+target_link_libraries(damsa_signal_plots PRIVATE ROOT::Core ROOT::RIO ROOT::Tree
+    ROOT::Hist ROOT::Graf ROOT::Gpad)
+
+add_executable(damsa_validate tools/damsa_validate.cpp)
+target_include_directories(damsa_validate PRIVATE ${PROJECT_SOURCE_DIR}/src/alp)
+target_link_libraries(damsa_validate PRIVATE ROOT::Core ROOT::RIO ROOT::Tree
+    ROOT::Hist ROOT::Graf ROOT::Gpad)
+
+add_executable(damsa_eventview tools/damsa_eventview.cpp)
+target_link_libraries(damsa_eventview PRIVATE ROOT::Core ROOT::RIO ROOT::Tree
+    ROOT::Hist ROOT::Graf ROOT::Graf3d ROOT::Gpad)
+
 add_executable(damsa_report tools/damsa_report.cpp)
 target_include_directories(damsa_report PRIVATE ${PROJECT_SOURCE_DIR}/src/alp)
 target_link_libraries(damsa_report PRIVATE ROOT::Core ROOT::RIO ROOT::Tree
@@ -107,5 +120,5 @@ add_executable(alp_test tests/test_alp.cpp)
 target_include_directories(alp_test PRIVATE ${PROJECT_SOURCE_DIR}/src/alp)
 
 add_custom_target(Damsa DEPENDS damsa damsa_opt damsa_alp_inject
-                         analyze_gap_scan flux_converter subsample_alp_csv
-                         snr_separability damsa_io_test damsa_convert alp_xcheck alp_test damsa_alp_signal damsa_merge damsa_pileup damsa_joint_scan damsa_combine_pareto damsa_target_projection damsa_report)
+                         analyze_gap_scan flux_converter damsa_subsample
+                         snr_separability damsa_io_test damsa_convert alp_xcheck alp_test damsa_alp_signal damsa_merge damsa_pileup damsa_joint_scan damsa_combine_pareto damsa_target_projection damsa_report damsa_eventview damsa_signal_plots damsa_validate)
