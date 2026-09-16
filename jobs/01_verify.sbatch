@@ -57,7 +57,7 @@ cp output/alplib_brems_flux.csv verify/flux_before.csv 2>/dev/null || true
 rm -rf verify/mg && mkdir -p verify/mg/output
 cp output/chunk*_alplib_brems_flux.csv verify/mg/output/ 2>/dev/null
 ( cd verify/mg && ../../build/damsa_merge --nchunks 20 --outdir output >/dev/null 2>&1 )
-python3 scripts/local/merge_library.py --nchunks 20 >/dev/null 2>&1
+python3 legacy/python/local/merge_library.py --nchunks 20 >/dev/null 2>&1
 # Skip line 2 on both sides: it names the tool that produced the file.
 if diff <(tail -n +3 verify/mg/output/alplib_brems_flux.csv) \
         <(tail -n +3 output/alplib_brems_flux.csv) >/dev/null 2>&1; then
@@ -73,7 +73,7 @@ echo "=== 5. pileup (damsa_pileup vs pileup_overlay.py) ==="
 CPP=$(./build/damsa_pileup --library verify/pi0.root --n-library-electrons 1000000 \
         --use-geom-accept --beam-mode lesa --n-trials 20000 --seed 1 \
         --out-csv verify/pu_cpp.csv 2>/dev/null | grep -oP 'P\(has\)=\K[0-9.e+-]+')
-PY=$(python3 scripts/pipeline/pileup_overlay.py --library output/pi0_decays.csv \
+PY=$(python3 legacy/python/pipeline/pileup_overlay.py --library output/pi0_decays.csv \
         --n-library-electrons 1000000 --use-geom-accept --beam-mode lesa \
         --n-trials 20000 --seed 1 2>/dev/null | grep -oP '^\[lib\] \K[0-9]+')
 echo "  C++ P(has)=$CPP   Python photon-bearing electrons=$PY  (expect 148 -> 1.48e-04)"

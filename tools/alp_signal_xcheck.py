@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "pipeline"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "legacy" / "python" / "pipeline"))
 
 import numpy as np
 import alp_signal_pipeline as P

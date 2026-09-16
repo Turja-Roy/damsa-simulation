@@ -55,14 +55,14 @@ for N in "${TARGET_LENGTHS[@]}"; do
 
     # Step 2: Run joint VDC × calo scan
     echo "  Running joint VDC × calo scan (n_primaries=${N_PRIMARIES})..."
-    python scripts/joint_pareto_scan.py \
+    ./build/damsa_joint_scan \
         --particles   "${PARTICLES}" \
         --flux        "${FLUX}" \
         --n-primaries "${N_PRIMARIES}" \
         --vdc-min 30 --vdc-max 40 --vdc-step 2 \
         --calo-min 12 --calo-max 20 --calo-step 2 \
         --ma-list ${MA_LIST} \
-        --n-samples ${N_SAMPLES} \
+        --n-samples ${N_SAMPLES} --alplib alplib \
         --label "${LABEL}" \
         --output-dir output/joint_pareto
 
@@ -81,7 +81,7 @@ if [[ ${#PARETO_FILES[@]} -eq 0 ]]; then
 fi
 
 echo "=== Combining ${#PARETO_FILES[@]} Pareto fronts into global Pareto ==="
-python scripts/combine_pareto.py \
+./build/damsa_combine_pareto \
     "${PARETO_FILES[@]}" \
     --output output/global_pareto.csv \
     --plot-dir plots/global_pareto

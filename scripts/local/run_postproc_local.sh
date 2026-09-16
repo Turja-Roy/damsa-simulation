@@ -7,31 +7,32 @@ cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
 N="${N_ELECTRONS:-1000000}"   # keep in sync with NCHUNKS*EVENTS
 
-for f in output/alplib_brems_flux.csv output/pi0_decays.csv output/calo_face_particles.csv; do
+for f in output/alplib_brems_flux.csv output/pi0_decays.root output/calo_face_particles.root; do
     [[ -s "$f" ]] || { echo "ERROR: missing $f — run run_library_local.sh first"; exit 1; }
 done
 
 # 2. signal pipeline (bugs 1.4, 1.5)
-python3 scripts/pipeline/alp_signal_pipeline.py \
-    --flux output/alplib_brems_flux.csv --auto-coupling
+./build/damsa_alp_signal \
+    --flux output/alplib_brems_flux.csv --alplib alplib --auto-coupling
 
 # 3. pi0-only accidental overlay per mode
 for mode in dark lesa xleap interleaved; do
-  python3 scripts/pipeline/pileup_overlay.py \
-      --library output/pi0_decays.csv --n-library-electrons "$N" \
-      --beam-mode "$mode" --gate-ns 1000 --mass-MeV 100 --mass-window-MeV 20
+  ./build/damsa_pileup \
+      --library output/pi0_decays.root --n-library-electrons "$N" \
+      --beam-mode "$mode" --gate-ns 1000 --mass-MeV 100 --mass-window-MeV 20 \
+      --out-csv "output/pileup_pi0_${mode}.csv"
 done
 
 # 4. full SM accidental pool (calo-face)
 for mode in dark lesa xleap interleaved; do
-  python3 scripts/pipeline/pileup_overlay.py \
-      --library output/calo_face_particles.csv --n-library-electrons "$N" \
+  ./build/damsa_pileup \
+      --library output/calo_face_particles.root --n-library-electrons "$N" \
       --beam-mode "$mode" --gate-ns 1000 --mass-MeV 100 --mass-window-MeV 20 \
-      --calo-face --min-photon-E 5
+      --calo-face --min-photon-E 5 --out-csv "output/pileup_calo_${mode}.csv"
 done
 
 # 5. re-inject decay photons (MT row bug 1.3 fixed)
-./build/damsa_alp_inject output/alp_decay_photons_ma100MeV.csv macros/run_alp.mac
+./build/damsa_alp_inject output/alp_decay_photons_ma100MeV.root macros/run_alp.mac
 
 # 6. optional cross-check: pulsed direct sim vs overlay, dark only
 ./build/damsa macros/pulsed_dark.mac

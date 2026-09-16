@@ -49,8 +49,8 @@ for i in $(seq 0 $((NCHUNKS-1))); do
 
     # Resume: skip a chunk whose 3 keepers already exist (from a prior run).
     if [[ -s "output/${tag}_alplib_brems_flux.csv" \
-       && -s "output/${tag}_pi0_decays.csv" \
-       && -s "output/${tag}_calo_face_particles.csv" ]]; then
+       && -s "output/${tag}_pi0_decays.root" \
+       && -s "output/${tag}_calo_face_particles.root" ]]; then
         echo "--- [$((i+1))/$NCHUNKS] $tag  already done, skipping ---"
         continue
     fi
@@ -69,6 +69,8 @@ for i in $(seq 0 $((NCHUNKS-1))); do
         for g in output/${tag}_*; do
             case "$g" in
                 output/${tag}_alplib_brems_flux.csv|\
+                output/${tag}_pi0_decays.root|\
+                output/${tag}_calo_face_particles.root|\
                 output/${tag}_pi0_decays.csv|\
                 output/${tag}_calo_face_particles.csv) : ;;   # keep
                 *) rm -f "$g" ;;
@@ -79,10 +81,10 @@ for i in $(seq 0 $((NCHUNKS-1))); do
 done
 
 echo "=== chunks done, merging: $(date) ==="
-python3 scripts/local/merge_library.py --nchunks "$NCHUNKS"
+./build/damsa_merge --nchunks "$NCHUNKS"
 
 echo "=== merged canonical outputs ==="
-ls -lh output/alplib_brems_flux.csv output/pi0_decays.csv output/calo_face_particles.csv
+ls -lh output/alplib_brems_flux.csv output/pi0_decays.root output/calo_face_particles.root
 echo "done: $(date)"
 echo
 echo "Next: run AUDIT.md steps 2-6 (all quick, local-safe), or:"
