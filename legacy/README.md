@@ -22,6 +22,11 @@ to diff against the C++.
 | `python/visualization/alplib_signal_plots.py`, `root_config_plots.py` | `damsa_signal_plots` |
 | `python/visualization/pi0_vertices_g4view.py`, `alp_signal_g4view.py` | `damsa_eventview` |
 | `python/analysis/print_weight_breakdown.py`, `validate_opening_angles.py`, `angle_validation/angle_diagnostics.py` | `damsa_validate` |
+| `python/runner/geant4_runner.py` | Geant4 executables write `output/` directly; `damsa_*` tools read it without an extra wrapper |
+| `python/runner/objectives.py` | `damsa_joint_scan` (reads the same flux + particle CSVs) |
+| `python/visualization/visualization.py` | `damsa_signal_plots` + `damsa_eventview` + `damsa_report` |
+| `python/optimization/bayesian_optimization.py` | the C++ scan pipeline as a whole (`damsa_joint_scan` -> `damsa_combine_pareto`) |
+| `python/optimization/run_optimization.py` | the C++ scan pipeline as a whole (`damsa_joint_scan` -> `damsa_combine_pareto`) |
 | `cpp/subsample_alp_csv.cpp` | `damsa_subsample` (reads/writes TTree too) |
 
 `python/optimization/fast_pareto_scan.py` and `projected_pareto_scan.py` were
@@ -38,11 +43,13 @@ width is used as a coupling. The C++ ports reproduce this by default so the two
 sides stay diffable, and take `--fix-weights` to use the intended physics.
 See the commit message for `feat(scan)`.
 
-## Still live, not legacy
+## BoTorch/pymoo branch (now also legacy)
 
-`scripts/optimization/bayesian_optimization.py`, `run_optimization.py`,
-`scripts/runner/{geant4_runner,objectives}.py` and
-`scripts/visualization/visualization.py` are the BoTorch/pymoo branch. It was
-deliberately left in Python and has no C++ replacement, so it stays under
-`scripts/`. Note it cannot currently run: it imports `optimization_problem`,
-which exists nowhere in the repo, swallowed by a `try/except`.
+The BoTorch/pymoo branch (`bayesian_optimization.py`, `run_optimization.py`,
+`runner/{geant4_runner,objectives}.py`, `visualization/visualization.py`) was
+deliberately left under `scripts/` by commit `4f44ed0` because it had no C++
+replacement at the time. That decision was reversed once the C++ scan pipeline
+(`damsa_joint_scan` + `damsa_combine_pareto`) made the whole branch obsolete;
+these files are now in this directory alongside their siblings. Note they
+cannot currently run standalone: they import `optimization_problem`, which
+exists nowhere in the repo, swallowed by a `try/except`.
