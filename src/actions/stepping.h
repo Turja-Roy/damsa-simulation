@@ -49,6 +49,11 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
         }
     }
 
+    // Biasing weight carried by the track (1.0 whenever biasing is off). It
+    // MULTIPLIES the ALP-injection event weight rather than replacing it, so a
+    // biased ALP-inject run stays correctly normalized on both factors.
+    const G4double weight = evtWeight * track->GetWeight();
+
     // ─── Bremsstrahlung photon scoring INSIDE the target ────────────────────
     // MUST be before the fGeomBoundary early-return below.
     // Score every photon at its creation point (step 1) inside physTungsten,
@@ -72,7 +77,7 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
                         brems_energy, btime,
                         bpos.x(), bpos.y(), bpos.z(),
                         bmom.x(), bmom.y(), bmom.z(),
-                        trackID, eventID);
+                        trackID, eventID, weight);
                 }
             }
         }
@@ -168,13 +173,13 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
                     energy, time,
                     position.x(), position.y(), position.z(),
                     momentum.x(), momentum.y(), momentum.z(),
-                    trackID, eventID);
+                    trackID, eventID, weight);
             }
             DamsaFluxCollector::Instance()->RecordParticle(
                 pdgCode, energy, time,
                 position.x(), position.y(), position.z(),
                 momentum.x(), momentum.y(), momentum.z(),
-                trackID, eventID);
+                trackID, eventID, weight);
         }
     }
     // Magnet entrance scoring plane
@@ -192,7 +197,7 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
                 pdgCode, energy, time,
                 position.x(), position.y(), position.z(),
                 momentum.x(), momentum.y(), momentum.z(),
-                trackID, eventID, evtWeight);
+                trackID, eventID, weight);
             // Mark pi0 daughter gammas reaching the calorimeter.
             // Filter to Decay-created daughters of known pi0s here: the collector
             // stores unmatched marks as pending (first daughter crosses the calo

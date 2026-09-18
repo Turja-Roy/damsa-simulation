@@ -74,8 +74,8 @@ public:
     
     // Get binned photon spectrum for quick alplib input
     // Returns map of energy bin center (MeV) -> count
-    std::map<G4double, G4int> GetBinnedPhotonSpectrum(G4double binWidth = 1.0*MeV) const;
-    std::map<G4double, G4int> GetBinnedBremsSpectrum(G4double binWidth = 1.0*MeV) const;
+    std::map<G4double, G4double> GetBinnedPhotonSpectrum(G4double binWidth = 1.0*MeV) const;
+    std::map<G4double, G4double> GetBinnedBremsSpectrum(G4double binWidth = 1.0*MeV) const;
     
     // Write alplib-compatible flux file (energy, rate format)
     // Exit photon version (for background reference)
@@ -112,7 +112,7 @@ private:
     // vector required ~70 GB of memory (raw CSV ~145 GB), while all later
     // analysis stages read only the 1-MeV-binned spectrum written to
     // alplib_brems_flux.csv. Key = 1-MeV bin index, value = weighted count.
-    std::map<G4int, G4long> fBremsSpectrum;
+    std::map<G4int, G4double> fBremsSpectrum;
     G4long fBremsCount = 0;                    // total brems photons recorded
     std::vector<FluxParticle> fAllParticles;   // All particles (for background)
     std::vector<FluxParticle> fCaloFaceParticles;  // All particles at CaloEntrance
@@ -378,15 +378,15 @@ inline void DamsaFluxCollector::WriteCaloFaceCSV(const G4String& filename) const
     G4cout << "Calo face data written to: " << fullPath << " (" << fCaloFaceParticles.size() << " particles)" << G4endl;
 }
 
-inline std::map<G4double, G4int> DamsaFluxCollector::GetBinnedPhotonSpectrum(G4double binWidth) const
+inline std::map<G4double, G4double> DamsaFluxCollector::GetBinnedPhotonSpectrum(G4double binWidth) const
 {
-    std::map<G4double, G4int> spectrum;
+    std::map<G4double, G4double> spectrum;
     
     for (const auto& p : fPhotons) {
         // Bin center
         G4int binIndex = static_cast<G4int>(p.energy / binWidth);
         G4double binCenter = (binIndex + 0.5) * binWidth;
-        spectrum[binCenter] += static_cast<G4int>(p.weight);
+        spectrum[binCenter] += p.weight;
     }
     
     return spectrum;
@@ -441,22 +441,22 @@ inline void DamsaFluxCollector::RecordBremsPhoton(G4double energy, G4double /*ti
     // retained — see the fBremsSpectrum declaration for the rationale.
     const G4int binIndex = static_cast<G4int>(energy / (1.0*MeV));
     G4AutoLock lock(&fMutex);
-    fBremsSpectrum[binIndex] += static_cast<G4long>(weight);
+    fBremsSpectrum[binIndex] += weight;
     ++fBremsCount;
 }
 
-inline std::map<G4double, G4int> DamsaFluxCollector::GetBinnedBremsSpectrum(G4double binWidth) const
+inline std::map<G4double, G4double> DamsaFluxCollector::GetBinnedBremsSpectrum(G4double binWidth) const
 {
     // Re-bin the internal 1-MeV histogram. For binWidth = 1 MeV (the only
     // width used in practice) this reproduces the per-photon binning exactly;
     // wider bins must be integer multiples of 1 MeV.
-    std::map<G4double, G4int> spectrum;
+    std::map<G4double, G4double> spectrum;
 
     for (const auto& bin : fBremsSpectrum) {
         const G4double energy = (bin.first + 0.5) * (1.0*MeV);
         const G4int binIndex = static_cast<G4int>(energy / binWidth);
         const G4double binCenter = (binIndex + 0.5) * binWidth;
-        spectrum[binCenter] += static_cast<G4int>(bin.second);
+        spectrum[binCenter] += bin.second;
     }
 
     return spectrum;
