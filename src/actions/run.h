@@ -39,9 +39,8 @@ void DamsaRunAction::EndOfRunAction(const G4Run* run) {
     // Write flux data for alplib integration
     G4int nEvents = run->GetNumberOfEvent();
 
-    // Particle and pi0 data. Both formats are written while the analysis
-    // pipeline is being ported (DamsaConfig::gWriteCSV / gWriteNTuple), so each
-    // run yields a CSV/RNTuple pair to cross-check before the CSVs are dropped.
+    // Particle and pi0 data. TTree is the storage format; the per-particle CSVs
+    // are off by default and only written on /damsa/setWriteCSV true.
     if (DamsaConfig::gWriteCSV) {
         DamsaFluxCollector::Instance()->WritePhotonFluxCSV(prefix + "photon_flux_target_exit.csv");
         DamsaFluxCollector::Instance()->WriteBackgroundCSV(prefix + "background_target_exit.csv");

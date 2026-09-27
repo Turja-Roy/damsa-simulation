@@ -80,10 +80,11 @@ inline std::string gALPDecayCSV   = "";     // path to alp_decay_photons_maX.csv
 inline std::string gOutputPrefix  = "";     // prepended to every CSV/ROOT file in run.h
 
 // ── Output format (migration: CSV -> RNTuple) ───────────────────────────────
-// Both default on so every run produces a diff pair while the pipeline is being
-// ported. Turn gWriteCSV off once the downstream consumers read RNTuple; the
-// ASCII files are the ones that grew output/ to 7.6 GB.
-inline bool       gWriteCSV        = true;
+// Per-particle CSVs are retired: every downstream tool reads the TTrees. The
+// small human-facing CSVs (alplib_brems_flux.csv, pi0_summary.csv) are always
+// written regardless. /damsa/setWriteCSV true brings the dumps back, e.g. for
+// the CSV-vs-TTree diff in jobs/01_verify.sbatch.
+inline bool       gWriteCSV        = false;
 inline bool       gWriteNTuple     = true;
 inline double     gALPVertexZ_cm  = -45.0; // ALP production vertex z (target centre, cm)
 inline int        gALPRefireFactor = 1;    // number of times each ALP row is re-fired

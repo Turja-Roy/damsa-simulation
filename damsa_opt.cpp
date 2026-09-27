@@ -209,11 +209,11 @@ int main(int argc, char** argv)
     // We need to use the configured output directory
     std::string filePrefix = config.getConfigPrefix();
     
-    // Write photon flux CSV
-    DamsaFluxCollector::Instance()->WritePhotonFluxCSV(filePrefix + "photon_flux_target_exit.csv");
-    
-    // Write background CSV
-    DamsaFluxCollector::Instance()->WriteBackgroundCSV(filePrefix + "background_target_exit.csv");
+    // Per-particle dumps follow the same switch as run.h
+    if (DamsaConfig::gWriteCSV) {
+        DamsaFluxCollector::Instance()->WritePhotonFluxCSV(filePrefix + "photon_flux_target_exit.csv");
+        DamsaFluxCollector::Instance()->WriteBackgroundCSV(filePrefix + "background_target_exit.csv");
+    }
     
     // Write alplib-compatible flux (delivered current from the active beam mode)
     const G4double beamCurrent =

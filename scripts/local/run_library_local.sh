@@ -70,9 +70,7 @@ for i in $(seq 0 $((NCHUNKS-1))); do
             case "$g" in
                 output/${tag}_alplib_brems_flux.csv|\
                 output/${tag}_pi0_decays.root|\
-                output/${tag}_calo_face_particles.root|\
-                output/${tag}_pi0_decays.csv|\
-                output/${tag}_calo_face_particles.csv) : ;;   # keep
+                output/${tag}_calo_face_particles.root) : ;;  # keep
                 *) rm -f "$g" ;;
             esac
         done
