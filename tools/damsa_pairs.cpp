@@ -81,7 +81,7 @@ int main(int argc, char** argv)
     io::EnsureParentDir(outCsv);
     std::ofstream out(outCsv);
     out << "eventID,parentID,proc,primaryID,E1_MeV,E2_MeV,m_gg_MeV,theta12_rad,"
-           "sep_mm,z_asym,vz_mm,scattered1,scattered2\n";
+           "sep_mm,z_asym,vz_mm,scattered1,scattered2,weight\n";
 
     // proc -> {pairs, pairs with neither photon scattered}
     std::map<int, std::pair<long long, long long>> perProc;
@@ -101,7 +101,7 @@ int main(int argc, char** argv)
             out << key.first << "," << key.second << "," << ProcName(a.proc) << ","
                 << a.primaryID << "," << a.energy_MeV << "," << b.energy_MeV << "," << m << ","
                 << std::acos(c) << "," << sep << "," << z << "," << a.vz_mm << ","
-                << a.scattered << "," << b.scattered << "\n";
+                << a.scattered << "," << b.scattered << "," << a.weight << "\n";
             auto& pp = perProc[a.proc];
             ++pp.first;
             if (a.scattered != 1 && b.scattered != 1) ++pp.second;

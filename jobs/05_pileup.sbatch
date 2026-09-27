@@ -30,21 +30,24 @@ source jobs/env.sh
 N="${N_ELECTRONS:-1000000}"
 LIB=output/calo_face_particles.root
 MODES=dark,lesa,xleap                     # interleaved (100 Hz) is outside the ns-window regime
+# MC (tasks 2-3) skips X-LEAP: at 10-20 MeV every X-LEAP window already holds a
+# fake (saturated, run 34452), and its huge windows blew the 8 h limit.
+MODES_MC=dark,lesa
 FRACS=0.1,0.2,0.4,0.5,0.6,0.8,1
 WINDOWS=5,10,20,30,40,50,60,70,80,90,100
 MASS_EXP=30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200
 MASS_MC=10,20
-COMMON=(--calo-face --n-library-electrons "$N" --beam-mode "$MODES"
+COMMON=(--calo-face --n-library-electrons "$N"
         --bunch-frac "$FRACS" --window-ns "$WINDOWS" --mass-window-MeV "${MASS_WINDOW:-20}")
 
 case "$SLURM_ARRAY_TASK_ID" in
-  0) ./build/damsa_pileup --library "$LIB" "${COMMON[@]}" --mass-MeV "$MASS_EXP" \
+  0) ./build/damsa_pileup --library "$LIB" "${COMMON[@]}" --beam-mode "$MODES" --mass-MeV "$MASS_EXP" \
         --expected --out-csv output/pileup_grid_exp.csv ;;
-  1) ./build/damsa_pileup --library "$LIB" "${COMMON[@]}" --mass-MeV "$MASS_EXP" \
+  1) ./build/damsa_pileup --library "$LIB" "${COMMON[@]}" --beam-mode "$MODES" --mass-MeV "$MASS_EXP" \
         --expected --case3 --out-csv output/pileup_grid_exp_case3.csv ;;
-  2) ./build/damsa_pileup --library "$LIB" "${COMMON[@]}" --mass-MeV "$MASS_MC" \
+  2) ./build/damsa_pileup --library "$LIB" "${COMMON[@]}" --beam-mode "$MODES_MC" --mass-MeV "$MASS_MC" \
         --n-trials "${N_TRIALS:-5000}" --out-csv output/pileup_grid_mc.csv ;;
-  3) ./build/damsa_pileup --library "$LIB" "${COMMON[@]}" --mass-MeV "$MASS_MC" \
+  3) ./build/damsa_pileup --library "$LIB" "${COMMON[@]}" --beam-mode "$MODES_MC" --mass-MeV "$MASS_MC" \
         --n-trials "${N_TRIALS:-5000}" --case3 --out-csv output/pileup_grid_mc_case3.csv ;;
   4) # Without --use-geom-accept this is legitimately zero: no pi0 gamma in the
      # 1e6 library survives the material to the calo face (plan §0).
