@@ -5,7 +5,6 @@
 #SBATCH -n 1
 #SBATCH -c 4
 #SBATCH -t 02:00:00
-#SBATCH --mem=16G
 #SBATCH -o logs/signal_%j.out
 #SBATCH -e logs/signal_%j.err
 #

@@ -5,7 +5,6 @@
 #SBATCH -n 1
 #SBATCH -c 4
 #SBATCH -t 01:00:00
-#SBATCH --mem=64G
 #SBATCH -o logs/merge_%j.out
 #SBATCH -e logs/merge_%j.err
 #

@@ -5,7 +5,6 @@
 #SBATCH -n 1
 #SBATCH -c 8
 #SBATCH -t 12:00:00
-#SBATCH --mem=32G
 #SBATCH --array=0-7
 #SBATCH -o logs/inject_%A_%a.out
 #SBATCH -e logs/inject_%A_%a.err
@@ -19,8 +18,7 @@
 # so subsample first. SUBSAMPLE preserves total events/day in expectation via
 # Horvitz-Thompson reweighting -- do not just `head` the file.
 #
-# subsample_alp_csv still works on CSV, hence the round trip below. Porting it to
-# read/write TTree would remove the last CSV in the pipeline.
+# damsa_subsample reads and writes TTree directly.
 
 set -euo pipefail
 source jobs/env.sh
@@ -30,16 +28,11 @@ MA="${MASSES[$SLURM_ARRAY_TASK_ID]}"
 SUBSAMPLE="${SUBSAMPLE:-200000}"
 
 SRC="output/alp_decay_photons_ma${MA}MeV.root"
-CSV="output/alp_decay_photons_ma${MA}MeV.csv"
-SUB="output/alp_decay_photons_ma${MA}MeV_sub.csv"
 SUBROOT="output/alp_decay_photons_ma${MA}MeV_sub.root"
 
 [[ -s "$SRC" ]] || { echo "missing $SRC (run 04_signal first)"; exit 1; }
 
-./build/damsa_convert "$SRC" "$CSV"
-./build/subsample_alp_csv "$CSV" "$SUB" "$SUBSAMPLE" $((1234 + SLURM_ARRAY_TASK_ID))
-./build/damsa_convert "$SUB" "$SUBROOT"
-rm -f "$CSV" "$SUB"               # the full CSV is ~1 GB; only the TTree is kept
+./build/damsa_subsample "$SRC" "$SUBROOT" "$SUBSAMPLE" $((1234 + SLURM_ARRAY_TASK_ID))
 
 echo "=== injecting ma=${MA} MeV, $SUBSAMPLE pairs ==="
 ./build/damsa_alp_inject "$SUBROOT" macros/run_alp.mac

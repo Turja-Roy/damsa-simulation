@@ -15,6 +15,13 @@
 #
 # Overrides: DAMSA_LCG_VIEW, DAMSA_VENV, DAMSA_CONDA.
 
+# The jobs run `set -euo pipefail`, but the third-party scripts sourced below
+# (LCG setup.sh reads an unset $COMPILER; conda/venv activate do similar) die
+# under nounset. Relax -u while this file runs; the caller's setting is
+# restored at the end.
+case $- in *u*) _damsa_nounset=1 ;; *) _damsa_nounset=0 ;; esac
+set +u
+
 WORKDIR="${WORKDIR:-${SLURM_SUBMIT_DIR:-$PWD}}"
 cd "$WORKDIR" || { echo "[env] cannot cd to $WORKDIR"; exit 1; }
 
@@ -104,3 +111,7 @@ if (( _bad )); then
 MSG
     (return 0 2>/dev/null) && return 1 || exit 1
 fi
+
+# Restore the caller's nounset (see top). An if, not `&& set -u`: a false test
+# as the last command would make `source jobs/env.sh` fail under set -e.
+if (( _damsa_nounset )); then set -u; fi

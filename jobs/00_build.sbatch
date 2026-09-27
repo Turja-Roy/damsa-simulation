@@ -5,7 +5,6 @@
 #SBATCH -n 1
 #SBATCH -c 16
 #SBATCH -t 00:40:00
-#SBATCH --mem=16G
 #SBATCH -o logs/build_%j.out
 #SBATCH -e logs/build_%j.err
 #

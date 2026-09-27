@@ -5,7 +5,6 @@
 #SBATCH -n 1
 #SBATCH -c 8
 #SBATCH -t 04:00:00
-#SBATCH --mem=24G
 #SBATCH --array=0-19
 #SBATCH -o logs/lib_%A_%a.out
 #SBATCH -e logs/lib_%A_%a.err
@@ -58,16 +57,14 @@ echo "[$tag] $EVENTS events, seeds=($s1,$s2), $(date)"
 # dumps (~7 GB/chunk) that only the separate geometry-optimization workflow
 # reads, and it makes its own via damsa_opt. KEEP_ALL=1 to retain everything.
 #
-# Both formats are kept while the migration is being verified (01_verify diffs
-# them). Once the CSVs are retired, drop them here and from run.h.
+# Per-particle CSVs are off by default (damsa_config.h gWriteCSV); only the
+# binned brems flux stays CSV.
 if [[ "${KEEP_ALL:-0}" != "1" ]]; then
     for g in output/${tag}_*; do
         case "$g" in
             output/${tag}_alplib_brems_flux.csv|\
             output/${tag}_pi0_decays.root|\
-            output/${tag}_calo_face_particles.root|\
-            output/${tag}_pi0_decays.csv|\
-            output/${tag}_calo_face_particles.csv) : ;;      # keep
+            output/${tag}_calo_face_particles.root) : ;;     # keep
             *) rm -f "$g" ;;
         esac
     done
