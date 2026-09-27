@@ -9,6 +9,7 @@
 #include "FluxData.h"
 #include "pi0DecayData.h"
 #include "damsa_config.h"
+#include "detector.h"
 
 class DamsaRunAction : public G4UserRunAction {
 public:
@@ -24,6 +25,7 @@ void DamsaRunAction::BeginOfRunAction(const G4Run*) {
     // Reset flux collector at start of each run
     DamsaFluxCollector::Instance()->Reset();
     DamsaPi0Collector::Instance()->Reset();
+    DamsaCaloHitCollector::Instance()->Reset();
     DamsaConfig::gElectronsFired = 0;   // count electrons fired this run (Level B aware)
 }
 
@@ -47,6 +49,7 @@ void DamsaRunAction::EndOfRunAction(const G4Run* run) {
         DamsaFluxCollector::Instance()->WriteCSV(prefix + "all_particles_target_exit.csv");
         DamsaFluxCollector::Instance()->WriteCaloFaceCSV(prefix + "calo_face_particles.csv");
         DamsaPi0Collector::Instance()->WriteCSV(prefix + "pi0_decays.csv");
+        DamsaCaloHitCollector::Instance()->WriteCSV(prefix + "calo_hits.csv");
     }
     if (DamsaConfig::gWriteNTuple) {
         // photon_flux_ and background_ are pdg filters over the same target-exit
@@ -54,6 +57,8 @@ void DamsaRunAction::EndOfRunAction(const G4Run* run) {
         DamsaFluxCollector::Instance()->WriteTargetExitNTuple(prefix + "target_exit.root");
         DamsaFluxCollector::Instance()->WriteCaloFaceNTuple(prefix + "calo_face_particles.root");
         DamsaPi0Collector::Instance()->WriteNTuple(prefix + "pi0_decays.root");
+        // Written in every mode: ALP injection needs the hits too.
+        DamsaCaloHitCollector::Instance()->WriteNTuple(prefix + "calo_hits.root");
     }
 
     // Small key/value summary — stays CSV by design.

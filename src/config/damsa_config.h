@@ -87,6 +87,12 @@ inline std::string gOutputPrefix  = "";     // prepended to every CSV/ROOT file 
 inline bool       gWriteCSV        = false;
 inline bool       gWriteNTuple     = true;
 inline double     gALPVertexZ_cm  = -45.0; // ALP production vertex z (target centre, cm)
+
+// ── Calorimeter hit readout (detector.h, Random-2-photons plan §5.3) ─────────
+// Events whose hits are stored: -1 = all. The physics library needs 1e6
+// electrons but the hit-level study far fewer, and hits are the big file.
+inline long       gCaloHitEventLimit  = -1;
+inline double     gCaloHitMinEdep_MeV = 0.05;  // per-cell storage floor (not the analysis threshold)
 inline int        gALPRefireFactor = 1;    // number of times each ALP row is re-fired
 
 // ── Level B: beam time structure (plan.md §3) ───────────────────────────────

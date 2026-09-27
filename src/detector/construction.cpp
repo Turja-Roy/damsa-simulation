@@ -10,6 +10,7 @@
 #include "G4Colour.hh"
 #include "G4RotationMatrix.hh"
 #include "MagneticField.h"
+#include "detector.h"
 
 DamsaDetectorConstruction::DamsaDetectorConstruction()
     : fMessenger(nullptr),
@@ -298,51 +299,57 @@ void DamsaDetectorConstruction::BuildCalorimeter(G4LogicalVolume* worldLV, G4dou
     G4cout << "ECAL front face absolute Z: " << ecalFrontZ/cm  << " cm" << G4endl;
     G4cout << "ECAL center absolute Z:     " << ecalCenterZ/cm << " cm" << G4endl;
 
-    // ── Simplified monolithic CsI calorimeter (temporary, for geometry optimisation) ──
-    // The detailed crystal bar geometry is preserved below (commented out) and should
-    // be restored once the optimal geometry is determined.
-    G4cout << "[Calorimeter] Using simplified monolithic CsI box ("
-           << fCaloSizeXY/cm << " x " << fCaloSizeXY/cm
-           << " x " << ecalDepth/cm << " cm)" << G4endl;
+    // ── Crystal bar calorimeter (Random-2-photons plan §5.1) ─────────────────
+    // fNumCaloLayers layers of fNumCrystalsPerLayer CsI bars in an air mother.
+    // Even layers: bars along x (measure y); odd layers: rotated 90° (measure x).
+    // Pitch and bar length follow the messenger knobs (fCaloSizeXY, layer
+    // thickness), so geometry scans stay consistent -- the original version
+    // hardcoded a 12 cm bar and 1 cm pitch. copyNo = layer*nPerLayer + crystal
+    // is the cellID written by DamsaCaloSD (detector.h).
+    const G4double pitch = fCaloSizeXY / fNumCrystalsPerLayer;
+    G4cout << "[Calorimeter] CsI crystal bars: " << fNumCaloLayers << " layers x "
+           << fNumCrystalsPerLayer << " bars, " << fCaloSizeXY/cm << " x "
+           << pitch/cm << " x " << fLayerThickness/cm << " cm each" << G4endl;
 
     auto* solidECAL = new G4Box("solidECAL", fCaloSizeXY/2., fCaloSizeXY/2., ecalDepth/2.);
-    fLogicECAL = new G4LogicalVolume(solidECAL, fMatCsI, "logicECAL");
+    fLogicECAL = new G4LogicalVolume(solidECAL, fMatAir, "logicECAL");
+    fLogicECAL->SetVisAttributes(G4VisAttributes::GetInvisible());
 
-    auto* caloVis = new G4VisAttributes(G4Colour(1.0, 0.0, 1.0, 0.5));
-    caloVis->SetForceSolid(true);
-    fLogicECAL->SetVisAttributes(caloVis);
+    auto* solidCrystal = new G4Box("solidCrystal", fCaloSizeXY/2., pitch/2., fLayerThickness/2.);
+    fLogicCrystal = new G4LogicalVolume(solidCrystal, fMatCsI, "logicCrystal");
+    auto* crystalVis = new G4VisAttributes(G4Colour(1.0, 0.0, 1.0, 0.5));
+    crystalVis->SetForceSolid(true);
+    fLogicCrystal->SetVisAttributes(crystalVis);
 
+    auto* rotY = new G4RotationMatrix();
+    rotY->rotateZ(90.*deg);
+    for (G4int layer = 0; layer < fNumCaloLayers; layer++) {
+        const G4double localZ   = -ecalDepth/2. + fLayerThickness/2. + layer * fLayerThickness;
+        const G4bool isXOriented = (layer % 2 == 0);
+        for (G4int crystal = 0; crystal < fNumCrystalsPerLayer; crystal++) {
+            const G4double offset = -fCaloSizeXY/2. + pitch/2. + crystal * pitch;
+            const G4ThreeVector position = isXOriented
+                ? G4ThreeVector(0., offset, localZ)
+                : G4ThreeVector(offset, 0., localZ);
+            const G4int copyNo = layer * fNumCrystalsPerLayer + crystal;
+            new G4PVPlacement(isXOriented ? nullptr : rotY, position, fLogicCrystal,
+                              "physCalorimeter", fLogicECAL, false, copyNo, true);
+        }
+    }
     new G4PVPlacement(0, G4ThreeVector(0., 0., ecalCenterZ), fLogicECAL, "physECAL",
                       worldLV, false, 0, true);
 
-    // ── Original crystal bar geometry (commented out for geometry optimisation) ──
-    // Restore when reverting to full simulation after optimisation is complete.
+    // ── Simplified monolithic CsI box (alternative, used for the geometry optimisation) ──
+    // Faster to track and enough for flux/acceptance scans; no per-cell readout.
+    // To use it: replace the crystal block above with this, and in
+    // ConstructSDandField put the SD on fLogicECAL instead of fLogicCrystal.
     //
-    // auto* logicECAL_bars = new G4LogicalVolume(solidECAL, fMatAir, "logicECAL");
-    // logicECAL_bars->SetVisAttributes(G4VisAttributes::GetInvisible());
-    //
-    // auto* solidCrystal = new G4Box("solidCrystal", 6.0*cm, 0.5*cm, 0.5*cm);
-    // fLogicCrystal = new G4LogicalVolume(solidCrystal, fMatCsI, "logicCrystal");
-    // auto* crystalVis = new G4VisAttributes(G4Colour(1.0, 0.0, 1.0, 0.5));
-    // crystalVis->SetForceSolid(true);
-    // fLogicCrystal->SetVisAttributes(crystalVis);
-    //
-    // for (G4int layer = 0; layer < fNumCaloLayers; layer++) {
-    //     G4double localZ    = -ecalDepth/2. + fLayerThickness/2. + layer * fLayerThickness;
-    //     G4bool isXOriented = (layer % 2 == 0);
-    //     G4RotationMatrix* rot = nullptr;
-    //     if (!isXOriented) { rot = new G4RotationMatrix(); rot->rotateZ(90.*deg); }
-    //     for (G4int crystal = 0; crystal < fNumCrystalsPerLayer; crystal++) {
-    //         G4double offset = -fCaloSizeXY/2. + 0.5*cm + crystal * 1.0*cm;
-    //         G4ThreeVector position = isXOriented
-    //             ? G4ThreeVector(0., offset, localZ)
-    //             : G4ThreeVector(offset, 0., localZ);
-    //         G4int copyNo = layer * fNumCrystalsPerLayer + crystal;
-    //         new G4PVPlacement(rot, position, fLogicCrystal, "physCalorimeter",
-    //                           logicECAL_bars, false, copyNo, true);
-    //     }
-    // }
-    // new G4PVPlacement(0, G4ThreeVector(0., 0., ecalCenterZ), logicECAL_bars, "physECAL",
+    // auto* solidECAL = new G4Box("solidECAL", fCaloSizeXY/2., fCaloSizeXY/2., ecalDepth/2.);
+    // fLogicECAL = new G4LogicalVolume(solidECAL, fMatCsI, "logicECAL");
+    // auto* caloVis = new G4VisAttributes(G4Colour(1.0, 0.0, 1.0, 0.5));
+    // caloVis->SetForceSolid(true);
+    // fLogicECAL->SetVisAttributes(caloVis);
+    // new G4PVPlacement(0, G4ThreeVector(0., 0., ecalCenterZ), fLogicECAL, "physECAL",
     //                   worldLV, false, 0, true);
 
     // Scoring plane at calorimeter exit
@@ -379,19 +386,12 @@ void DamsaDetectorConstruction::ConstructSDandField()
 
     fLogicSiTracker->SetSensitiveDetector(trackerSD);
 
-    auto* calorimeterSD = new G4MultiFunctionalDetector("CalorimeterSD");
-    sdManager->AddNewDetector(calorimeterSD);
-
-    auto* caloEnergyDep = new G4PSEnergyDeposit("EnergyDeposit");
-    calorimeterSD->RegisterPrimitive(caloEnergyDep);
-
-    auto* caloNofSecondary = new G4PSNofSecondary("NofSecondary");
-    calorimeterSD->RegisterPrimitive(caloNofSecondary);
-
-    // Simplified geometry: register monolithic CsI box as sensitive detector.
-    // When reverting to crystal bar geometry, replace fLogicECAL with fLogicCrystal.
-    fLogicECAL->SetSensitiveDetector(calorimeterSD);
-    // fLogicCrystal->SetSensitiveDetector(calorimeterSD);  // crystal bar geometry
+    // Timed per-crystal readout (detector.h). Replaces the G4PSEnergyDeposit
+    // scorer, which had no time and whose output nothing read.
+    auto* caloSD = new DamsaCaloSD("CaloHitSD");
+    sdManager->AddNewDetector(caloSD);
+    fLogicCrystal->SetSensitiveDetector(caloSD);
+    // fLogicECAL->SetSensitiveDetector(caloSD);  // monolithic box alternative: one cell, cellID 0
 
     // Scoring volume sensitive detectors
     auto* scoringMagnetEntranceSD = new G4MultiFunctionalDetector("ScoringMagnetEntranceSD");

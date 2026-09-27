@@ -96,6 +96,17 @@ struct Pi0Row {
     double caloEnergyMeV = 0;
 };
 
+// One calorimeter crystal with energy in one event (Random-2-photons plan §5.3).
+// cellID = layer * nCrystalsPerLayer + crystal; layer % 2 == 0 bars run along x
+// (they measure y), odd layers along y (measure x). True times only: time
+// resolution is applied offline, so it can be scanned without re-running.
+struct CaloHitRow {
+    int    eventID = 0, cellID = 0;
+    double edep_MeV = 0;
+    double t_first_ns = 0;   // earliest deposit in the cell
+    double t_mean_ns = 0;    // energy-weighted mean deposit time
+};
+
 // The ~1 GB files. Momenta are direction components; weight is events/day.
 struct AlpDecayRow {
     double E1 = 0, px1 = 0, py1 = 0, pz1 = 0;
@@ -136,6 +147,19 @@ template <> struct Schema<ParticleRow> {
                            std::pair{"vy_mm",      &ParticleRow::vy_mm},
                            std::pair{"vz_mm",      &ParticleRow::vz_mm},
                            std::pair{"vt_ns",      &ParticleRow::vt_ns} };
+    }
+};
+
+template <> struct Schema<CaloHitRow> {
+    static constexpr const char* kName = "calo_hits";
+    static constexpr auto Ints() {
+        return std::array{ std::pair{"eventID", &CaloHitRow::eventID},
+                           std::pair{"cellID",  &CaloHitRow::cellID} };
+    }
+    static constexpr auto Dbls() {
+        return std::array{ std::pair{"edep_MeV",   &CaloHitRow::edep_MeV},
+                           std::pair{"t_first_ns", &CaloHitRow::t_first_ns},
+                           std::pair{"t_mean_ns",  &CaloHitRow::t_mean_ns} };
     }
 };
 
@@ -314,7 +338,7 @@ inline long long NTupleEntries(const std::string& path, const std::string& treeN
 inline std::string SniffTree(const std::string& path)
 {
     for (const char* n : {Schema<AlpDecayRow>::kName, Schema<Pi0Row>::kName,
-                          Schema<ParticleRow>::kName})
+                          Schema<ParticleRow>::kName, Schema<CaloHitRow>::kName})
         if (NTupleEntries(path, n) >= 0) return n;
     return "";
 }
@@ -354,6 +378,16 @@ inline void WriteParticleCsvRow(std::ostream& o, const ParticleRow& p)
       << p.vz_mm << ","
       << p.vt_ns << ","
       << p.scattered << "\n";
+}
+
+inline constexpr const char* kCaloHitCsvHeader =
+    "eventID,cellID,edep_MeV,t_first_ns,t_mean_ns";
+
+inline void WriteCaloHitCsvRow(std::ostream& o, const CaloHitRow& h)
+{
+    o << h.eventID << "," << h.cellID << ","
+      << std::scientific << std::setprecision(6)
+      << h.edep_MeV << "," << h.t_first_ns << "," << h.t_mean_ns << "\n";
 }
 
 inline constexpr const char* kPi0CsvHeader =

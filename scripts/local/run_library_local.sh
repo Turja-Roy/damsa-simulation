@@ -50,7 +50,8 @@ for i in $(seq 0 $((NCHUNKS-1))); do
     # Resume: skip a chunk whose 3 keepers already exist (from a prior run).
     if [[ -s "output/${tag}_alplib_brems_flux.csv" \
        && -s "output/${tag}_pi0_decays.root" \
-       && -s "output/${tag}_calo_face_particles.root" ]]; then
+       && -s "output/${tag}_calo_face_particles.root" \
+       && -s "output/${tag}_calo_hits.root" ]]; then
         echo "--- [$((i+1))/$NCHUNKS] $tag  already done, skipping ---"
         continue
     fi
@@ -70,7 +71,8 @@ for i in $(seq 0 $((NCHUNKS-1))); do
             case "$g" in
                 output/${tag}_alplib_brems_flux.csv|\
                 output/${tag}_pi0_decays.root|\
-                output/${tag}_calo_face_particles.root) : ;;  # keep
+                output/${tag}_calo_face_particles.root|\
+                output/${tag}_calo_hits.root) : ;;            # keep
                 *) rm -f "$g" ;;
             esac
         done

@@ -15,6 +15,7 @@
 #include "G4UIcmdWithADoubleAndUnit.hh"
 #include "G4UIcmdWithAString.hh"
 #include "G4UIcmdWithABool.hh"
+#include "G4UIcmdWithAnInteger.hh"
 #include "G4UIdirectory.hh"
 #include "G4SystemOfUnits.hh"
 #include "damsa_config.h"
@@ -39,6 +40,7 @@ private:
     G4UIcmdWithADoubleAndUnit* fSetCaloSizeXYCmd;
     G4UIcmdWithAString*        fSetOutputPrefixCmd;
     G4UIcmdWithABool*          fSetWriteCSVCmd;
+    G4UIcmdWithAnInteger*      fSetCaloHitEventLimitCmd;
     G4UIcmdWithABool*          fSetWriteNTupleCmd;
     G4UIcmdWithAString*        fSetBeamModeCmd;
     G4UIcmdWithABool*          fSetPulsedBeamCmd;
@@ -57,7 +59,7 @@ inline DamsaDetectorMessenger::DamsaDetectorMessenger(DamsaDetectorConstruction*
 : fDetector(det), fDetDir(nullptr),
   fSetVDCLengthCmd(nullptr), fSetTargetLengthCmd(nullptr), fSetCaloSizeXYCmd(nullptr),
   fSetOutputPrefixCmd(nullptr),
-  fSetWriteCSVCmd(nullptr), fSetWriteNTupleCmd(nullptr),
+  fSetWriteCSVCmd(nullptr), fSetCaloHitEventLimitCmd(nullptr), fSetWriteNTupleCmd(nullptr),
   fSetBeamModeCmd(nullptr),
   fSetPulsedBeamCmd(nullptr), fSetReadoutGateCmd(nullptr), fSetBeamSpotSigmaCmd(nullptr)
 {
@@ -100,10 +102,15 @@ inline DamsaDetectorMessenger::DamsaDetectorMessenger(DamsaDetectorConstruction*
     fSetOutputPrefixCmd->AvailableForStates(G4State_PreInit, G4State_Idle);
 
     fSetWriteCSVCmd = new G4UIcmdWithABool("/damsa/setWriteCSV", this);
-    fSetWriteCSVCmd->SetGuidance("Write the legacy ASCII CSV outputs (default true).");
-    fSetWriteCSVCmd->SetGuidance("Turn off once downstream analysis reads RNTuple.");
+    fSetWriteCSVCmd->SetGuidance("Write the per-particle ASCII CSV dumps (default false).");
+    fSetWriteCSVCmd->SetGuidance("TTrees are always written; the brems flux CSV always is.");
     fSetWriteCSVCmd->SetParameterName("On", false);
     fSetWriteCSVCmd->AvailableForStates(G4State_PreInit, G4State_Idle);
+
+    fSetCaloHitEventLimitCmd = new G4UIcmdWithAnInteger("/damsa/setCaloHitEventLimit", this);
+    fSetCaloHitEventLimitCmd->SetGuidance("Store calo crystal hits for at most N events (-1 = all).");
+    fSetCaloHitEventLimitCmd->SetParameterName("N", false);
+    fSetCaloHitEventLimitCmd->AvailableForStates(G4State_PreInit, G4State_Idle);
 
     fSetWriteNTupleCmd = new G4UIcmdWithABool("/damsa/setWriteNTuple", this);
     fSetWriteNTupleCmd->SetGuidance("Write the RNTuple outputs (default true).");
@@ -149,6 +156,7 @@ inline DamsaDetectorMessenger::~DamsaDetectorMessenger()
     delete fSetCaloSizeXYCmd;
     delete fSetOutputPrefixCmd;
     delete fSetWriteCSVCmd;
+    delete fSetCaloHitEventLimitCmd;
     delete fSetWriteNTupleCmd;
     delete fSetBeamModeCmd;
     delete fSetPulsedBeamCmd;
@@ -165,6 +173,8 @@ inline void DamsaDetectorMessenger::SetNewValue(G4UIcommand* cmd, G4String val)
         fDetector->SetTargetLength(fSetTargetLengthCmd->GetNewDoubleValue(val));
     } else if (cmd == fSetCaloSizeXYCmd) {
         fDetector->SetCaloSizeXY(fSetCaloSizeXYCmd->GetNewDoubleValue(val));
+    } else if (cmd == fSetCaloHitEventLimitCmd) {
+        DamsaConfig::gCaloHitEventLimit = G4UIcmdWithAnInteger::GetNewIntValue(val);
     } else if (cmd == fSetWriteCSVCmd) {
         DamsaConfig::gWriteCSV = G4UIcmdWithABool::GetNewBoolValue(val);
     } else if (cmd == fSetWriteNTupleCmd) {

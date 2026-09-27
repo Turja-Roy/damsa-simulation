@@ -170,11 +170,15 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
     if(!volume) return;
 
     // ── pi0 calo energy attribution (any step type, before boundary filter) ──
-    // Accumulates energy deposited in physECAL by all descendants of tracked pi0s.
+    // Accumulates energy deposited in the CsI by all descendants of tracked pi0s.
     // Stored thread-locally and transferred to global collector in EndOfEventAction.
+    // Pre-step volume: that is where the step's energy was deposited. CsI is
+    // "physCalorimeter" (crystal bars) or "physECAL" (monolithic alternative);
+    // with bars, physECAL is the air mother and holds no deposits.
     {
         G4double edep = step->GetTotalEnergyDeposit();
-        if (edep > 0.0 && volume->GetName() == "physECAL") {
+        const G4VPhysicalVolume* dv = step->GetPreStepPoint()->GetTouchableHandle()->GetVolume();
+        if (edep > 0.0 && dv && (dv->GetName() == "physCalorimeter" || dv->GetName() == "physECAL")) {
             DamsaPi0TrackingState* pstate = DamsaPi0TrackingState::Instance();
             auto anc = pstate->trackToPi0Ancestor.find(trackID);
             if (anc != pstate->trackToPi0Ancestor.end()) {

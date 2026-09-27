@@ -166,6 +166,7 @@ int main(int argc, char** argv)
         if (tree.empty()) { std::fprintf(stderr, "error: no known tree in %s\n", in.c_str()); return 1; }
         if      (tree == Schema<AlpDecayRow>::kName) schema = "alp";
         else if (tree == Schema<Pi0Row>::kName)      schema = "pi0";
+        else if (tree == Schema<CaloHitRow>::kName)  schema = "calohit";
         else                                         schema = "particle";
     } else {
         schema = SniffSchema(in);
@@ -177,6 +178,7 @@ int main(int argc, char** argv)
     if (reverse) {
         if      (*schema == "alp") n = ToCsv<AlpDecayRow>(in, out, kAlpDecayCsvHeader, WriteAlpDecayCsvRow, limit);
         else if (*schema == "pi0") n = ToCsv<Pi0Row>(in, out, kPi0CsvHeader, WritePi0CsvRow, limit);
+        else if (*schema == "calohit") n = ToCsv<CaloHitRow>(in, out, kCaloHitCsvHeader, WriteCaloHitCsvRow, limit);
         else                       n = ToCsv<ParticleRow>(in, out, kParticleCsvHeader, WriteParticleCsvRow, limit);
     }
     else if (*schema == "alp")      n = Convert<AlpDecayRow>(in, out, limit);

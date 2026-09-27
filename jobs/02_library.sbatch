@@ -37,7 +37,8 @@ s2=$(( 20011 + 2*i ))
 # Resume: skip a chunk whose keepers already exist.
 if [[ -s "output/${tag}_alplib_brems_flux.csv" \
    && -s "output/${tag}_pi0_decays.root" \
-   && -s "output/${tag}_calo_face_particles.root" ]]; then
+   && -s "output/${tag}_calo_face_particles.root" \
+   && -s "output/${tag}_calo_hits.root" ]]; then
     echo "[$tag] already done, skipping"
     exit 0
 fi
@@ -64,7 +65,8 @@ if [[ "${KEEP_ALL:-0}" != "1" ]]; then
         case "$g" in
             output/${tag}_alplib_brems_flux.csv|\
             output/${tag}_pi0_decays.root|\
-            output/${tag}_calo_face_particles.root) : ;;     # keep
+            output/${tag}_calo_face_particles.root|\
+            output/${tag}_calo_hits.root) : ;;               # keep
             *) rm -f "$g" ;;
         esac
     done

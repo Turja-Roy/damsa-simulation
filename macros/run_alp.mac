@@ -13,4 +13,8 @@
 #   ./build/damsa_alp_inject output/alp_decay_photons_ma100MeV.root run_alp.mac
 #   ./build/damsa_alp_inject output/alp_decay_photons_ma100MeV.root run_alp.mac 5
 
+# Calo crystal hits for the first 20k injected events only: a ~4 GeV pair lights
+# ~330 cells, so 200k events would write ~1.5 GB of hits per mass.
+/damsa/setCaloHitEventLimit 20000
+
 /run/initialize
