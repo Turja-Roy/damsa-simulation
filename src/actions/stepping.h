@@ -28,6 +28,34 @@ DamsaSteppingAction::DamsaSteppingAction()
 : G4UserSteppingAction()
 {}
 
+// Provenance of a track at a scoring plane (Random-2-photons plan §4.2).
+inline FluxTruth MakeFluxTruth(const G4Track* track)
+{
+    namespace P = damsa::io::Proc;
+    FluxTruth t;
+    t.parentID  = track->GetParentID();
+    t.primaryID = DamsaPi0TrackingState::Instance()->PrimaryOf(track->GetTrackID());
+
+    const G4VProcess* cp = track->GetCreatorProcess();
+    if (!cp) t.proc = P::Primary;
+    else {
+        const G4String& n = cp->GetProcessName();
+        t.proc = n == "eBrem"   ? P::eBrem   : n == "Decay" ? P::Decay
+               : n == "conv"    ? P::Conv    : n == "compt" ? P::Compt
+               : n == "annihil" ? P::Annihil : P::Other;
+    }
+
+    const G4ThreeVector v = track->GetVertexPosition();
+    t.vx = v.x(); t.vy = v.y(); t.vz = v.z();
+    t.vt = track->GetGlobalTime() - track->GetLocalTime();   // global time at creation
+
+    // Photons only: interacted outside the target (see scatteredOutsideTarget).
+    if (track->GetDefinition()->GetPDGEncoding() == 22)
+        t.scattered = DamsaPi0TrackingState::Instance()
+                          ->scatteredOutsideTarget.count(track->GetTrackID()) ? 1 : 0;
+    return t;
+}
+
 DamsaSteppingAction::~DamsaSteppingAction()
 {}
 
@@ -126,6 +154,18 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
     G4StepPoint* postStepPoint = step->GetPostStepPoint();
     if(!postStepPoint) return;
 
+    // ── Case-3 bookkeeping: photon scattered outside the target ─────────────
+    // A non-transport step that leaves the photon alive is a Compton/Rayleigh
+    // scatter; absorbing processes (phot, conv) kill it.
+    if(particleName == "gamma" && track->GetTrackStatus() == fAlive) {
+        const G4VProcess* pp = postStepPoint->GetProcessDefinedStep();
+        if(pp && pp->GetProcessType() != fTransportation) {
+            G4VPhysicalVolume* pre = step->GetPreStepPoint()->GetTouchableHandle()->GetVolume();
+            if(pre && pre->GetName() != "physTungsten")
+                DamsaPi0TrackingState::Instance()->scatteredOutsideTarget.insert(trackID);
+        }
+    }
+
     G4VPhysicalVolume* volume = postStepPoint->GetTouchableHandle()->GetVolume();
     if(!volume) return;
 
@@ -152,7 +192,14 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
 
     G4ThreeVector momentum = track->GetMomentumDirection();
     G4double cosTheta = momentum.z();
-    if(cosTheta < 0) return;
+    const G4bool forward = (cosTheta >= 0);
+
+    G4String volumeName = volume->GetName();
+
+    // Backward-going particles are scored only at the calo entrance: that is
+    // the CsI albedo / backsplash (Random-2-photons plan §1). Every other plane,
+    // and every reader of target-exit rows, stays forward-only.
+    if(!forward && volumeName != "physScoringCaloEntrance") return;
 
     // Direction-only angle w.r.t. +z beam axis.  No spatial origin — the same
     // value is recorded regardless of where the particle was created.  The
@@ -161,8 +208,6 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
     G4double angle = momentum.angle(G4ThreeVector(0, 0, 1));
     G4ThreeVector position = postStepPoint->GetPosition();
     G4double time = postStepPoint->GetGlobalTime();
-
-    G4String volumeName = volume->GetName();
 
     // Target exit scoring plane - records particles exiting the target
     if(volumeName == "physScoringVolumeTarget") {
@@ -179,7 +224,7 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
                 pdgCode, energy, time,
                 position.x(), position.y(), position.z(),
                 momentum.x(), momentum.y(), momentum.z(),
-                trackID, eventID, weight);
+                trackID, eventID, weight, MakeFluxTruth(track));
         }
     }
     // Magnet entrance scoring plane
@@ -190,20 +235,27 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
     }
     // Calorimeter entrance scoring plane - DETECTOR face for background scoring
     else if(volumeName == "physScoringCaloEntrance") {
-        if(!DamsaAnalysis::Instance()->WasTrackRecorded(trackID, "CaloEntrance")) {
-            DamsaAnalysis::Instance()->RecordParticle(particleName, energy, "CaloEntrance", angle, trackID, isPrimary);
+        // Separate dedup key per direction: a photon that crosses forward and
+        // then Compton-backscatters off the CsI keeps its trackID, and must
+        // still be recorded on the way back. "CaloEntranceBack" has no
+        // histogram location, so RecordParticle only marks the track there;
+        // the scoring-plane spectra stay forward-only.
+        const G4String key = forward ? "CaloEntrance" : "CaloEntranceBack";
+        if(!DamsaAnalysis::Instance()->WasTrackRecorded(trackID, key)) {
+            DamsaAnalysis::Instance()->RecordParticle(particleName, energy, key, angle, trackID, isPrimary);
             // Record particle data at calo face for SNR analysis (with G4 event weight)
             DamsaFluxCollector::Instance()->RecordCaloFaceParticle(
                 pdgCode, energy, time,
                 position.x(), position.y(), position.z(),
                 momentum.x(), momentum.y(), momentum.z(),
-                trackID, eventID, weight);
+                trackID, eventID, weight, MakeFluxTruth(track));
             // Mark pi0 daughter gammas reaching the calorimeter.
             // Filter to Decay-created daughters of known pi0s here: the collector
             // stores unmatched marks as pending (first daughter crosses the calo
             // before its decay record is completed), so feeding it every gamma
-            // would grow the pending set unboundedly.
-            if(particleName == "gamma") {
+            // would grow the pending set unboundedly. Forward only: a gamma
+            // leaving the calo backwards did not reach it from the pi0.
+            if(forward && particleName == "gamma") {
                 const G4VProcess* cp = track->GetCreatorProcess();
                 if(cp && cp->GetProcessName() == "Decay" &&
                    DamsaPi0TrackingState::Instance()->pi0TrackIDs.count(track->GetParentID())) {

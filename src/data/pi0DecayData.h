@@ -55,11 +55,33 @@ public:
     std::map<G4int, G4int>     trackToPi0Ancestor; // trackID → ancestral pi0 trackID (all descendants)
     std::map<G4int, G4double>  pi0CaloEnergy_MeV;  // pi0TID → accumulated calo energy this event
 
+    // trackID → ancestral PRIMARY trackID, for every track (not pi0-specific;
+    // lives here to share the per-event Reset). Indexed by trackID, which
+    // Geant4 assigns densely from 1 within an event, so a vector beats a map.
+    // Separates electrons that share one pulsed Level-B event.
+    // ponytail: 4 B per track; a direct Level-B LESA gate (1e4 e-, ~1e8 tracks)
+    // costs ~0.4 GB per thread. Only store tracks that reach a scoring plane if
+    // that ever bites.
+    std::vector<G4int>         trackToPrimary;
+
+    // Photons that interacted and survived (Compton, Rayleigh) OUTSIDE the
+    // tungsten target this event: the case-3 "scattered off the walls / end
+    // caps / trackers / CsI" population. Scatters inside the target are part
+    // of the source shower and deliberately not counted.
+    std::set<G4int>            scatteredOutsideTarget;
+
+    G4int PrimaryOf(G4int trackID) const {
+        return (trackID >= 0 && trackID < static_cast<G4int>(trackToPrimary.size()))
+               ? trackToPrimary[trackID] : -1;
+    }
+
     void Reset() {
         pi0TrackIDs.clear();
         inProgressDecays.clear();
         trackToPi0Ancestor.clear();
         pi0CaloEnergy_MeV.clear();
+        trackToPrimary.clear();   // keeps capacity across events
+        scatteredOutsideTarget.clear();
     }
 
 private:

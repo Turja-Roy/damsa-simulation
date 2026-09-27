@@ -13,6 +13,16 @@
 #include "damsa_config.h"
 #include "damsa_io.h"
 
+// Truth provenance of a scored track (Random-2-photons plan §4.2). Geant4
+// units; ToParticleRow converts. Defaults = "not recorded".
+struct FluxTruth {
+    G4int parentID  = -1;
+    G4int primaryID = -1;
+    G4int proc      = -1;   // damsa::io::Proc code
+    G4int scattered = -1;
+    G4double vx = 0, vy = 0, vz = 0, vt = 0;   // creation vertex
+};
+
 // Structure to hold complete particle information for flux extraction
 // Used primarily for photon flux output to alplib
 struct FluxParticle {
@@ -24,6 +34,7 @@ struct FluxParticle {
     G4int pdgCode;        // PDG particle code
     G4int trackID;        // Track ID for deduplication
     G4int eventID;        // Event ID for correlation
+    FluxTruth truth;      // provenance (target exit + calo face only)
     
     FluxParticle() : energy(0), time(0), x(0), y(0), z(0),
                      px(0), py(0), pz(1), weight(1.0),
@@ -52,13 +63,15 @@ public:
     void RecordParticle(G4int pdgCode, G4double energy, G4double time,
                         G4double x, G4double y, G4double z,
                         G4double px, G4double py, G4double pz,
-                        G4int trackID, G4int eventID, G4double weight = 1.0);
+                        G4int trackID, G4int eventID, G4double weight = 1.0,
+                        const FluxTruth& truth = FluxTruth());
     
     // Record any particle at the calorimeter entrance face
     void RecordCaloFaceParticle(G4int pdgCode, G4double energy, G4double time,
                                 G4double x, G4double y, G4double z,
                                 G4double px, G4double py, G4double pz,
-                                G4int trackID, G4int eventID, G4double weight = 1.0);
+                                G4int trackID, G4int eventID, G4double weight = 1.0,
+                                const FluxTruth& truth = FluxTruth());
     
     // Export functions
     void WriteCSV(const G4String& filename) const;
@@ -156,7 +169,8 @@ inline void DamsaFluxCollector::RecordPhoton(G4double energy, G4double time,
 inline void DamsaFluxCollector::RecordParticle(G4int pdgCode, G4double energy, G4double time,
                                                 G4double x, G4double y, G4double z,
                                                 G4double px, G4double py, G4double pz,
-                                                G4int trackID, G4int eventID, G4double weight)
+                                                G4int trackID, G4int eventID, G4double weight,
+                                                const FluxTruth& truth)
 {
     FluxParticle p;
     p.pdgCode = pdgCode;
@@ -171,6 +185,7 @@ inline void DamsaFluxCollector::RecordParticle(G4int pdgCode, G4double energy, G
     p.weight = weight;
     p.trackID = trackID;
     p.eventID = eventID;
+    p.truth = truth;
     G4AutoLock lock(&fMutex);
     fAllParticles.push_back(p);
 }
@@ -178,7 +193,8 @@ inline void DamsaFluxCollector::RecordParticle(G4int pdgCode, G4double energy, G
 inline void DamsaFluxCollector::RecordCaloFaceParticle(G4int pdgCode, G4double energy, G4double time,
                                                         G4double x, G4double y, G4double z,
                                                         G4double px, G4double py, G4double pz,
-                                                        G4int trackID, G4int eventID, G4double weight)
+                                                        G4int trackID, G4int eventID, G4double weight,
+                                                        const FluxTruth& truth)
 {
     FluxParticle p;
     p.pdgCode = pdgCode;
@@ -193,6 +209,7 @@ inline void DamsaFluxCollector::RecordCaloFaceParticle(G4int pdgCode, G4double e
     p.weight = weight;
     p.trackID = trackID;
     p.eventID = eventID;
+    p.truth = truth;
     G4AutoLock lock(&fMutex);
     fCaloFaceParticles.push_back(p);
 }
@@ -233,6 +250,14 @@ inline damsa::io::ParticleRow ToParticleRow(const FluxParticle& p)
     r.py         = p.py;
     r.pz         = p.pz;
     r.weight     = p.weight;
+    r.parentID   = p.truth.parentID;
+    r.primaryID  = p.truth.primaryID;
+    r.proc       = p.truth.proc;
+    r.scattered  = p.truth.scattered;
+    r.vx_mm      = p.truth.vx / mm;
+    r.vy_mm      = p.truth.vy / mm;
+    r.vz_mm      = p.truth.vz / mm;
+    r.vt_ns      = p.truth.vt / ns;
     return r;
 }
 

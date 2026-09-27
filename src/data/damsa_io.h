@@ -69,7 +69,19 @@ struct ParticleRow {
     double x_mm = 0, y_mm = 0, z_mm = 0;
     double px = 0, py = 0, pz = 0;
     double weight = 1.0;
+    // Truth provenance (Random-2-photons plan §4.2). -1 = not recorded, which is
+    // what files written before these columns existed read back as.
+    int    parentID = -1;   // immediate parent trackID (0 = primary)
+    int    primaryID = -1;  // ancestral primary trackID: separates electrons in one pulsed event
+    int    proc = -1;       // creator process, see Proc below
+    int    scattered = -1;  // photons: 1 = Compton/Rayleigh-scattered outside the target (case 3)
+    double vx_mm = 0, vy_mm = 0, vz_mm = 0, vt_ns = 0;   // creation vertex (global time)
 };
+
+// ParticleRow::proc codes. Small ints keep the column narrow.
+namespace Proc {
+enum : int { Primary = 0, eBrem = 1, Decay = 2, Conv = 3, Compt = 4, Annihil = 5, Other = 9 };
+}
 
 struct Pi0Row {
     int    eventID = 0, pi0TrackID = 0;
@@ -102,9 +114,13 @@ template <class T> struct Schema;
 template <> struct Schema<ParticleRow> {
     static constexpr const char* kName = "particles";
     static constexpr auto Ints() {
-        return std::array{ std::pair{"pdg",     &ParticleRow::pdg},
-                           std::pair{"trackID", &ParticleRow::trackID},
-                           std::pair{"eventID", &ParticleRow::eventID} };
+        return std::array{ std::pair{"pdg",       &ParticleRow::pdg},
+                           std::pair{"trackID",   &ParticleRow::trackID},
+                           std::pair{"eventID",   &ParticleRow::eventID},
+                           std::pair{"parentID",  &ParticleRow::parentID},
+                           std::pair{"primaryID", &ParticleRow::primaryID},
+                           std::pair{"proc",      &ParticleRow::proc},
+                           std::pair{"scattered", &ParticleRow::scattered} };
     }
     static constexpr auto Dbls() {
         return std::array{ std::pair{"energy_MeV", &ParticleRow::energy_MeV},
@@ -115,7 +131,11 @@ template <> struct Schema<ParticleRow> {
                            std::pair{"px",         &ParticleRow::px},
                            std::pair{"py",         &ParticleRow::py},
                            std::pair{"pz",         &ParticleRow::pz},
-                           std::pair{"weight",     &ParticleRow::weight} };
+                           std::pair{"weight",     &ParticleRow::weight},
+                           std::pair{"vx_mm",      &ParticleRow::vx_mm},
+                           std::pair{"vy_mm",      &ParticleRow::vy_mm},
+                           std::pair{"vz_mm",      &ParticleRow::vz_mm},
+                           std::pair{"vt_ns",      &ParticleRow::vt_ns} };
     }
 };
 
@@ -308,7 +328,8 @@ inline std::string SniffTree(const std::string& path)
 // but "does re-emitting the RNTuple reproduce the CSV byte for byte".
 
 inline constexpr const char* kParticleCsvHeader =
-    "pdg,energy_MeV,time_ns,x_mm,y_mm,z_mm,px,py,pz,weight,trackID,eventID";
+    "pdg,energy_MeV,time_ns,x_mm,y_mm,z_mm,px,py,pz,weight,trackID,eventID,"
+    "parentID,primaryID,proc,vx_mm,vy_mm,vz_mm,vt_ns,scattered";
 
 inline void WriteParticleCsvRow(std::ostream& o, const ParticleRow& p)
 {
@@ -324,7 +345,15 @@ inline void WriteParticleCsvRow(std::ostream& o, const ParticleRow& p)
       << p.pz << ","
       << p.weight << ","
       << p.trackID << ","
-      << p.eventID << "\n";
+      << p.eventID << ","
+      << p.parentID << ","
+      << p.primaryID << ","
+      << p.proc << ","
+      << p.vx_mm << ","
+      << p.vy_mm << ","
+      << p.vz_mm << ","
+      << p.vt_ns << ","
+      << p.scattered << "\n";
 }
 
 inline constexpr const char* kPi0CsvHeader =

@@ -21,6 +21,12 @@ void DamsaTrackingAction::PreUserTrackingAction(const G4Track* track)
 
     DamsaPi0TrackingState* state = DamsaPi0TrackingState::Instance();
 
+    // Primary ancestry for every track. A parent is always pre-tracked before
+    // its secondaries, so its entry already exists.
+    if (trackID >= static_cast<G4int>(state->trackToPrimary.size()))
+        state->trackToPrimary.resize(trackID + 1, -1);
+    state->trackToPrimary[trackID] = (parentID == 0) ? trackID : state->PrimaryOf(parentID);
+
     if (name == "pi0") {
         // Register pi0 before any step fires — more reliable than step-1 check.
         state->pi0TrackIDs.insert(trackID);

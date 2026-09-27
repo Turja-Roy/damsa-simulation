@@ -24,6 +24,8 @@ static void TestParticleRoundTrip()
         r.x_mm = -i * 0.5; r.y_mm = i * 0.25; r.z_mm = 20.0;
         r.px = 0.01 * i; r.py = -0.02 * i; r.pz = 0.998;
         r.weight = 1.0;
+        r.parentID = i - 1; r.primaryID = 1 + i % 4; r.proc = i % 6; r.scattered = i % 2;
+        r.vx_mm = 0.3 * i; r.vy_mm = -0.7; r.vz_mm = -487.123456789; r.vt_ns = 1e-3 * i;
         in.push_back(r);
     }
     WriteNTuple(path, in);
@@ -38,6 +40,13 @@ static void TestParticleRoundTrip()
         assert(out[i].energy_MeV == in[i].energy_MeV);
         assert(out[i].x_mm == in[i].x_mm);
         assert(out[i].pz == in[i].pz);
+        assert(out[i].parentID == in[i].parentID);
+        assert(out[i].primaryID == in[i].primaryID);
+        assert(out[i].proc == in[i].proc);
+        assert(out[i].scattered == in[i].scattered);
+        assert(out[i].vx_mm == in[i].vx_mm);
+        assert(out[i].vz_mm == in[i].vz_mm);
+        assert(out[i].vt_ns == in[i].vt_ns);
     }
     std::printf("  particle round-trip: %zu rows exact\n", out.size());
 }

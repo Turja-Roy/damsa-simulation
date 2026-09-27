@@ -181,6 +181,7 @@ int main(int argc, char** argv)
             auto* h = new TH1D(Form("h_cmp_%d", idx), "", 100, 0, 1000);
             long nPh = 0, nNe = 0; double sumE = 0;
             for (const auto& p : rows) {
+                if (p.pz <= 0) continue;   // backsplash leaving the calo, not incoming
                 if (p.pdg == 22)        ++nPh;
                 else if (p.pdg == 2112) ++nNe;
                 else continue;
