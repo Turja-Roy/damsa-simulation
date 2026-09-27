@@ -27,8 +27,6 @@
 // Fields are float64 so the CSV-vs-RNTuple cross-check is exact rather than
 // tolerance-limited. Direction cosines are unit vectors and energies are MC
 // quantities, so float32 is physically ample and would halve the size again.
-// ponytail: float64 for an exact cross-check; switch the Dbls() fields to float
-// once Phase 1 has passed, if 4.1x is not enough.
 
 #include <TFile.h>
 #include <TTree.h>

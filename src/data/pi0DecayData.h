@@ -59,9 +59,6 @@ public:
     // lives here to share the per-event Reset). Indexed by trackID, which
     // Geant4 assigns densely from 1 within an event, so a vector beats a map.
     // Separates electrons that share one pulsed Level-B event.
-    // ponytail: 4 B per track; a direct Level-B LESA gate (1e4 e-, ~1e8 tracks)
-    // costs ~0.4 GB per thread. Only store tracks that reach a scoring plane if
-    // that ever bites.
     std::vector<G4int>         trackToPrimary;
 
     // Photons that interacted and survived (Compton, Rayleigh) OUTSIDE the

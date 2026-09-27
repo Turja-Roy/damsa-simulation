@@ -183,7 +183,6 @@ inline void AcceptanceGrid(const std::vector<ScanEvent>& events,
 // joint_pareto_scan.py:153 is_pareto_optimal.
 // objectives[i] is one row; minimize[j] says whether column j is minimised.
 // O(N^2), which is fine: these grids are a few thousand rows at most.
-// ponytail: O(N^2) Pareto scan; switch to a sorted sweep if a grid ever gets big
 inline std::vector<bool> IsParetoOptimal(const std::vector<std::vector<double>>& objectives,
                                          const std::vector<bool>& minimize)
 {

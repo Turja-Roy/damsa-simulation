@@ -22,7 +22,7 @@ struct FourVector {
 // 1 - beta^2 ~ 1.6e-8, so gamma keeps only ~8 digits and energy conservation in
 // the boosted pair degrades to ~5e-9 relative (measured; see tests/test_alp.cpp).
 // Physically irrelevant against a calorimeter resolving ~2%/sqrt(E).
-// ponytail: gamma = E_parent/m_parent is exact and would remove this, but it
+// gamma = E_parent/m_parent is exact and would remove this, but it
 // would also diverge from alplib and loosen the cross-check. Revisit only if a
 // Phase 3 result is sensitive at the 1e-9 level.
 inline FourVector LorentzBoost(const FourVector& p, double vx, double vy, double vz)
