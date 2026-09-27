@@ -106,6 +106,9 @@ target_link_libraries(damsa_report PRIVATE ROOT::Core ROOT::RIO ROOT::Tree
 add_executable(damsa_pileup tools/damsa_pileup.cpp)
 target_link_libraries(damsa_pileup PRIVATE ROOT::Core ROOT::RIO ROOT::Tree)
 
+add_executable(damsa_pairs tools/damsa_pairs.cpp)
+target_link_libraries(damsa_pairs PRIVATE ROOT::Core ROOT::RIO ROOT::Tree)
+
 add_executable(damsa_merge tools/damsa_merge.cpp)
 target_link_libraries(damsa_merge PRIVATE ROOT::Core ROOT::RIO ROOT::Tree)
 
@@ -121,4 +124,4 @@ target_include_directories(alp_test PRIVATE ${PROJECT_SOURCE_DIR}/src/alp)
 
 add_custom_target(Damsa DEPENDS damsa damsa_opt damsa_alp_inject
                          analyze_gap_scan flux_converter damsa_subsample
-                         snr_separability damsa_io_test damsa_convert alp_xcheck alp_test damsa_alp_signal damsa_merge damsa_pileup damsa_joint_scan damsa_combine_pareto damsa_target_projection damsa_report damsa_eventview damsa_signal_plots damsa_validate)
+                         snr_separability damsa_io_test damsa_convert alp_xcheck alp_test damsa_alp_signal damsa_merge damsa_pileup damsa_pairs damsa_joint_scan damsa_combine_pareto damsa_target_projection damsa_report damsa_eventview damsa_signal_plots damsa_validate)
