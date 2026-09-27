@@ -14,10 +14,10 @@
 //
 //   pi0_decays.root         Per-decay rows.
 //   calo_face_particles.root Per-particle rows.
-//                           Concatenate, OFFSETTING eventID per chunk so the
-//                           pileup overlay's per-electron grouping never merges
-//                           two different electrons that were both event 0 in
-//                           their own chunk.
+//   calo_hits.root          Concatenate, OFFSETTING eventID per chunk by the
+//                           electrons in earlier chunks (same table for every
+//                           file), so eventIDs stay unique AND an electron keeps
+//                           one eventID across the three files.
 //
 // Note the Python wrote pi0_decays.csv through Python's csv module, which emits
 // CRLF; these RNTuple outputs have no such quirk.
@@ -130,15 +130,40 @@ void MergeFlux(const std::vector<std::string>& prefixes, const std::string& outD
                 nFiles, (long long)totalElectrons, counts.size(), outPath.c_str());
 }
 
+// Per-chunk eventID offset = electrons simulated in all earlier chunks (from each
+// chunk's flux header). ONE table for every file, so an electron keeps the same
+// merged eventID in pi0_decays, calo_face_particles and calo_hits -- offsetting
+// by each file's own max eventID gave the files different offsets and broke
+// cross-file matching. Level A: electrons == events; Level B events < electrons,
+// which only leaves gaps.
+std::map<std::string, long long> ChunkOffsets(const std::vector<std::string>& prefixes,
+                                              const std::string& outDir)
+{
+    std::map<std::string, long long> off;
+    long long next = 0;
+    for (const auto& p : prefixes) {
+        const std::string path = outDir + "/" + p + "alplib_brems_flux.csv";
+        if (!std::filesystem::exists(path)) continue;
+        off[p] = next;
+        next += std::llround(ParseFluxHeader(path).nPrimaries);
+    }
+    return off;
+}
+
 // Concatenate an RNTuple across chunks, offsetting eventID so IDs stay unique.
 template <class T>
 void MergeRows(const std::vector<std::string>& prefixes, const std::string& outDir,
-               const std::string& basename)
+               const std::string& basename, const std::map<std::string, long long>& offsets)
 {
-    std::vector<std::string> found;
+    std::vector<std::pair<std::string, long long>> found;   // path, eventID offset
     for (const auto& p : prefixes) {
         const std::string path = outDir + "/" + p + basename;
-        if (std::filesystem::exists(path)) found.push_back(path);
+        if (!std::filesystem::exists(path)) continue;
+        const auto it = offsets.find(p);
+        if (it == offsets.end())
+            throw std::runtime_error(path + " has no matching " + p + "alplib_brems_flux.csv"
+                                     " to take its electron count from");
+        found.emplace_back(path, it->second);
     }
     if (found.empty()) {
         std::printf("[rows] no chunk files for %s, skipping\n", basename.c_str());
@@ -147,23 +172,21 @@ void MergeRows(const std::vector<std::string>& prefixes, const std::string& outD
 
     const std::string outPath = outDir + "/" + basename;
     io::NTupleWriter<T> w(outPath);
-    int offset = 0;
     std::size_t total = 0;
+    int maxID = -1;
 
-    for (const auto& path : found) {
+    for (const auto& [path, offset] : found) {
         auto rows = io::ReadNTuple<T>(path);
-        int localMax = -1;
         for (auto& r : rows) {
-            localMax = std::max(localMax, r.eventID);
-            r.eventID += offset;
+            r.eventID += static_cast<int>(offset);
+            maxID = std::max(maxID, r.eventID);
             w.Fill(r);
             ++total;
         }
-        if (localMax >= 0) offset += localMax + 1;   // next chunk starts past this one
     }
     w.Finish();
-    std::printf("[rows] %s: %zu chunks, %zu rows, eventID span 0..%d -> %s\n",
-                basename.c_str(), found.size(), total, offset - 1, outPath.c_str());
+    std::printf("[rows] %s: %zu chunks, %zu rows, max eventID %d -> %s\n",
+                basename.c_str(), found.size(), total, maxID, outPath.c_str());
 }
 
 }  // namespace
@@ -188,8 +211,10 @@ int main(int argc, char** argv)
 
     try {
         MergeFlux(prefixes, outDir);
-        MergeRows<io::Pi0Row>(prefixes, outDir, "pi0_decays.root");
-        MergeRows<io::ParticleRow>(prefixes, outDir, "calo_face_particles.root");
+        const auto offsets = ChunkOffsets(prefixes, outDir);
+        MergeRows<io::Pi0Row>(prefixes, outDir, "pi0_decays.root", offsets);
+        MergeRows<io::ParticleRow>(prefixes, outDir, "calo_face_particles.root", offsets);
+        MergeRows<io::CaloHitRow>(prefixes, outDir, "calo_hits.root", offsets);
     } catch (const std::exception& e) {
         std::fprintf(stderr, "ERROR: %s\n", e.what());
         return 1;
