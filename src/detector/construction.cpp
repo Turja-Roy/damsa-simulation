@@ -89,7 +89,7 @@ G4VPhysicalVolume* DamsaDetectorConstruction::Construct()
     auto* logicWorld = new G4LogicalVolume(solidWorld, fMatAir, "logicWorld");
     auto* physWorld = new G4PVPlacement(0, G4ThreeVector(0., 0., 0.), logicWorld, "physWorld", 0, false, 0, true);
 
-    G4double zPos = -50.*cm;
+    G4double zPos = kBuildStartZ;
 
     BuildTarget(logicWorld, zPos);
     BuildVacuumChamber(logicWorld, zPos);

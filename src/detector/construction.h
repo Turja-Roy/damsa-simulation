@@ -42,8 +42,8 @@ public:
     G4double GetCaloEntranceZ()  const { return fCaloEntranceZ; }
     G4double GetVDCLength()      const { return fVDCLength; }
     G4double GetCaloSizeXY()     const { return fCaloSizeXY; }
-    // Target centre = exit face − half target thickness
-    G4double GetTargetCentreZ()  const { return fTargetExitZ - fTargetZ / 2.0; }
+    static constexpr G4double kBuildStartZ = -50.*cm;
+    G4double GetTargetCentreZ()  const { return kBuildStartZ + fTargetZ / 2.0; }
 
 private:
     virtual void ConstructSDandField() override;
