@@ -59,6 +59,8 @@ struct Args {
     double cellThr = 0.1, seed = 0.5, clusterMin = 5.0, truthMin = 1.0, effMin = 10.0;   // seed: soft photons peak at ~1.5 MeV per strip
     double resA = 0.02, resB = 0.01, matchR = 36.0, lever_mm = 470.0;
     calo::Geometry geo;
+    std::string reco = "depth";   // depth (Calo-Reco-Explained §2.13) | summed (old: layers summed, energy-rank x/y)
+    bool useEnergy = true;        // false: boolean readout (depth reco only)
     std::uint64_t rngSeed = 12345;
 };
 
@@ -148,6 +150,8 @@ int main(int argc, char** argv)
         else if (s == "--n-trials")            a.nTrials = std::stoll(nx());
         else if (s == "--out-csv")             a.outCsv = nx();
         else if (s == "--seed")                a.rngSeed = std::stoull(nx());
+        else if (s == "--reco")                a.reco = nx();
+        else if (s == "--no-energy")           a.useEnergy = false;
         else {
             std::fprintf(stderr,
                 "Usage: %s --hits calo_hits.root --truth calo_face_particles.root\n"
@@ -157,6 +161,7 @@ int main(int argc, char** argv)
                 "           --cell-threshold-MeV 0.1 --seed-MeV 0.5 --cluster-min-MeV 5 --eff-min-MeV 10\n"
                 "           --res-a 0.02 --res-b 0.01 --match-radius-mm 36\n"
                 "           --lever-arm-mm 470 --calo-xy-mm 120 --n-per-layer 12\n"
+                "           --reco depth|summed (default depth) --no-energy (boolean readout)\n"
                 "           --n-trials 2000 --out-csv PATH --seed N]\n", argv[0]);
             return 1;
         }
@@ -167,6 +172,11 @@ int main(int argc, char** argv)
     }
     for (const auto& m : a.modes)
         if (!kBeamModes.count(m)) { std::fprintf(stderr, "Unknown beam mode %s\n", m.c_str()); return 1; }
+
+    if (a.reco != "depth" && a.reco != "summed") { std::fprintf(stderr, "Unknown --reco %s\n", a.reco.c_str()); return 1; }
+    calo::RecoParams rp;
+    rp.seed = a.seed;
+    rp.useEnergy = a.useEnergy;
 
     int nCells = 0;
     const auto lib = LoadLibrary(a, nCells);
@@ -264,20 +274,31 @@ int main(int argc, char** argv)
                 long long& nReco = ac.nReco;
                 long long& nRecoMatched = ac.nRecoMatched;
 
-                // ── digitize + strip profiles (even layer -> y, odd -> x) ──
-                std::vector<calo::Strip> px(nPer), py(nPer);
+                // ── digitize: cell threshold + per-cell time smear ──
+                std::vector<double> Ec(nCells, 0.0), Tc(nCells, 0.0);
                 for (int c = 0; c < nCells; ++c) {
                     if (E[c] < a.cellThr) continue;
-                    const double t = Et[c] / E[c] + sigT * gaus(rng);
-                    auto& s = ((c / nPer) % 2 == 0 ? py : px)[c % nPer];
-                    s.E += E[c];
-                    s.Et += E[c] * t;
+                    Ec[c] = E[c];
+                    Tc[c] = Et[c] / E[c] + sigT * gaus(rng);
                 }
-                // Each projection holds ~half a shower, so the photon-energy minimum
-                // is applied after X/Y pairing; projections only need the seed.
+                std::vector<calo::Photon> raw;
+                if (a.reco == "depth") {
+                    for (const auto& q : calo::ReconstructDepth(Ec, Tc, a.geo, rp)) raw.push_back({q.E, q.x, q.y, q.t});
+                } else {
+                    // Old path: each projection summed over its layers (depth lost), energy-rank x/y.
+                    std::vector<calo::Strip> px(nPer), py(nPer);
+                    for (int c = 0; c < nCells; ++c) {
+                        if (Ec[c] <= 0) continue;
+                        auto& s = ((c / nPer) % 2 == 0 ? py : px)[c % nPer];
+                        s.E += Ec[c];
+                        s.Et += Ec[c] * Tc[c];
+                    }
+                    raw = calo::PairXY(calo::ClusterProjection(px, a.geo, a.seed, a.seed),
+                                       calo::ClusterProjection(py, a.geo, a.seed, a.seed));
+                }
+                // The photon-energy minimum is applied after reconstruction.
                 std::vector<calo::Photon> ph;
-                for (auto p : calo::PairXY(calo::ClusterProjection(px, a.geo, a.seed, a.seed),
-                                           calo::ClusterProjection(py, a.geo, a.seed, a.seed))) {
+                for (auto p : raw) {
                     const double rel = std::hypot(a.resA / std::sqrt(p.E / 1000.0), a.resB);
                     p.E *= std::max(0.0, 1.0 + rel * gaus(rng));
                     if (p.E >= a.clusterMin) ph.push_back(p);
