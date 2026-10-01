@@ -106,6 +106,19 @@ target_link_libraries(damsa_report PRIVATE ROOT::Core ROOT::RIO ROOT::Tree
 add_executable(damsa_pileup tools/damsa_pileup.cpp)
 target_link_libraries(damsa_pileup PRIVATE ROOT::Core ROOT::RIO ROOT::Tree)
 
+add_executable(damsa_reco_plots tools/damsa_reco_plots.cpp)
+target_link_libraries(damsa_reco_plots PRIVATE ROOT::Core ROOT::Hist ROOT::Graf ROOT::Gpad)
+
+add_executable(damsa_calo_tracks tools/damsa_calo_tracks.cpp)
+target_link_libraries(damsa_calo_tracks PRIVATE ROOT::Core ROOT::RIO ROOT::Tree ROOT::Hist ROOT::Graf ROOT::Gpad)
+
+add_executable(damsa_track_plots tools/damsa_track_plots.cpp)
+target_link_libraries(damsa_track_plots PRIVATE ROOT::Core ROOT::Hist ROOT::Graf ROOT::Gpad)
+
+add_executable(damsa_gun tools/damsa_gun.cpp)
+target_include_directories(damsa_gun PRIVATE ${PROJECT_SOURCE_DIR}/src/alp)
+target_link_libraries(damsa_gun PRIVATE ROOT::Core ROOT::RIO ROOT::Tree)
+
 add_executable(damsa_calo_reco tools/damsa_calo_reco.cpp)
 target_link_libraries(damsa_calo_reco PRIVATE ROOT::Core ROOT::RIO ROOT::Tree)
 
@@ -129,4 +142,4 @@ target_include_directories(alp_test PRIVATE ${PROJECT_SOURCE_DIR}/src/alp)
 
 add_custom_target(Damsa DEPENDS damsa damsa_opt damsa_alp_inject
                          analyze_gap_scan flux_converter damsa_subsample
-                         snr_separability damsa_io_test damsa_convert alp_xcheck alp_test damsa_alp_signal damsa_merge damsa_pileup damsa_pairs damsa_calo_reco calo_reco_test damsa_joint_scan damsa_combine_pareto damsa_target_projection damsa_report damsa_eventview damsa_signal_plots damsa_validate)
+                         snr_separability damsa_io_test damsa_convert alp_xcheck alp_test damsa_alp_signal damsa_merge damsa_pileup damsa_pairs damsa_calo_reco damsa_calo_tracks damsa_gun damsa_track_plots damsa_reco_plots calo_reco_test damsa_joint_scan damsa_combine_pareto damsa_target_projection damsa_report damsa_eventview damsa_signal_plots damsa_validate)
