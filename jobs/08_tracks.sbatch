@@ -8,13 +8,13 @@
 #SBATCH -o logs/tracks_%j.out
 #SBATCH -e logs/tracks_%j.err
 #
-# Depth-aware calo reconstruction, event by event (Calo-Reco-Explained §2.13):
+# Depth-aware calo reconstruction + photon ID, event by event (Calo-Reco-Explained §2.13-2.14):
 #   1. SM two-photon gun (pi0, eta) at several energies, vertices across the VDC,
 #      fired through Geant4 with damsa_alp_inject (it fires any gamma-gamma pair);
-#   2. damsa_calo_tracks on each sample, energy-integrated and boolean readout;
+#   2. damsa_calo_tracks on each sample (Si veto + truth trajectories);
 #   3. the same on the beam library (single electrons, no overlay);
-#   4. damsa_track_plots per sample (+ the grid comparison if the 07_reco
-#      variants exist: reco_grid_lesa{,_summed,_noE}.csv).
+#   4. damsa_track_plots per sample, all objects vs photon ID (+ the grid
+#      comparison if the 07_reco variants exist: reco_grid_lesa{,_summed}.csv).
 #   sbatch --dependency=afterok:<build_id> jobs/08_tracks.sbatch
 
 set -euo pipefail
@@ -28,21 +28,19 @@ for s in "${SAMPLES[@]}"; do
     tag="${name}_E${E}"
     ./build/damsa_gun --mass-MeV "$mass" --energy-MeV "$E" --n "$N" --out "output/gun_${tag}.root"
     ./build/damsa_alp_inject "output/gun_${tag}.root" macros/run_alp.mac > "logs/tracks_inject_${tag}.log" 2>&1
-    for mode in "" "--no-energy"; do
-        ./build/damsa_calo_tracks --hits "output/gun_${tag}_calo_hits.root" \
-            --truth "output/gun_${tag}_calo_face_particles.root" --tag "$tag" $mode
-    done
+    g="output/gun_${tag}"
+    ./build/damsa_calo_tracks --hits "${g}_calo_hits.root" --truth "${g}_calo_face_particles.root" \
+        --tracker "${g}_tracker_hits.root" --traj "${g}_calo_traj.root" --tag "$tag"
 done
 
 # Beam library, single electrons (truth photons >= 10 MeV for the efficiency).
-for mode in "" "--no-energy"; do
-    ./build/damsa_calo_tracks --hits output/calo_hits.root --truth output/calo_face_particles.root \
-        --tag library --truth-min-MeV 10 --n-display 40 $mode
-done
+./build/damsa_calo_tracks --hits output/calo_hits.root --truth output/calo_face_particles.root \
+    --tracker output/tracker_hits.root --traj output/calo_traj.root \
+    --tag library --truth-min-MeV 10 --n-display 40
 
 GRID=""
-if [[ -s output/reco_grid_lesa_summed.csv && -s output/reco_grid_lesa_noE.csv ]]; then
-    GRID="old summed=output/reco_grid_lesa_summed.csv,depth+energy=output/reco_grid_lesa.csv,depth boolean=output/reco_grid_lesa_noE.csv"
+if [[ -s output/reco_grid_lesa_summed.csv ]]; then
+    GRID="old summed=output/reco_grid_lesa_summed.csv,depth + photon ID=output/reco_grid_lesa.csv"
 fi
 for s in "${SAMPLES[@]}" "x x library"; do
     read -r name _ E <<< "$s"

@@ -1,15 +1,20 @@
 // Figures for the depth-aware calo reconstruction (Calo-Reco-Explained §2.13).
 //
 //   ./build/damsa_track_plots --dir output --tag pi0_E1000 \
-//        [--grid "old summed=output/reco_grid_lesa_summed.csv,depth+energy=output/reco_grid_lesa.csv,depth boolean=output/reco_grid_lesa_noE.csv"] \
+//        [--grid "old summed=output/reco_grid_lesa_summed.csv,depth=output/reco_grid_lesa.csv"] \
 //        [--out plots/tracks]
+//   ./build/damsa_track_plots --dir output --templates gamma,e-,pi+,proton,neutron \
+//        --energies 100,500,1000,2000 [--n-tmpl 2000] --out plots/templates
 //
-// From damsa_calo_tracks (tracks_<tag>.csv vs tracks_<tag>_noE.csv, and the
-// track_pairs_ files) -- energy-integrated vs boolean readout:
+// From damsa_calo_tracks (tracks_<tag>.csv, track_pairs_<tag>.csv) -- every
+// reconstructed object vs the photon-ID objects only (Calo-Reco-Explained §2.14):
 //   angle_resid_<tag>        |reco - true| photon direction (unit-area histograms)
 //   angle_vs_layers_<tag>    68 % angular error vs track length (layer clusters used)
 //   energy_ratio_<tag>       E_reco / E_true
 //   vertex_dz_<tag>          pair vertex z - true z (closest approach of the two photon lines)
+// From the single-particle templates (tracks_tmpl_<p>_E<E>.csv, <p> without +/-):
+//   tmpl_photon_rate         fraction of fired particles giving >= 1 photon-ID object, vs E
+//   tmpl_<feature>           photon-ID feature per species (all objects, all energies)
 // From damsa_calo_reco grids (--grid label=path,...), beam background vs mu:
 //   grid_fake20_vs_mu, grid_eff_vs_mu
 // Error bars: Poisson per histogram bin, binomial on fractions, bootstrap
@@ -31,6 +36,8 @@
 #include <cstdio>
 #include <filesystem>
 #include <random>
+#include <set>
+#include <array>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -39,8 +46,10 @@ namespace io = damsa::io;
 
 namespace {
 
-const char* kCat[] = {"#2a78d6", "#eb6834", "#1baf7a"};   // validated categorical slots 1-3
-const int kMark[] = {20, 21, 22};
+// Validated categorical slots 1-5 (light); 3-5 are under 3:1 contrast, so every
+// series also gets its own marker and a legend.
+const char* kCat[] = {"#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"};
+const int kMark[] = {20, 21, 22, 23, 33};
 
 TCanvas* Canvas(const char* name, bool logy = false)
 {
@@ -113,7 +122,7 @@ void Overlay(const std::vector<std::vector<double>>& vals, const std::vector<std
              const char* name, const char* title, int nb, double lo, double hi, const std::string& path)
 {
     auto* c = Canvas(name);
-    auto* leg = Legend(0.40, 0.74, 0.94, 0.88);
+    auto* leg = Legend(0.40, 0.88 - 0.05 * vals.size(), 0.94, 0.88);
     leg->SetTextSize(0.030);
     double ymax = 0;
     std::vector<TH1D*> hs;
@@ -137,7 +146,8 @@ void Overlay(const std::vector<std::vector<double>>& vals, const std::vector<std
 
 int main(int argc, char** argv)
 {
-    std::string dir = "output", tag, grid, out = "plots/tracks";
+    std::string dir = "output", tag, grid, out = "plots/tracks", tmpls, energies;
+    int nTmpl = 2000;
     for (int i = 1; i < argc; ++i) {
         const std::string s = argv[i];
         auto nx = [&]() { return std::string(argv[++i]); };
@@ -145,7 +155,11 @@ int main(int argc, char** argv)
         else if (s == "--tag")  tag = nx();
         else if (s == "--grid") grid = nx();
         else if (s == "--out")  out = nx();
-        else { std::fprintf(stderr, "usage: %s --dir DIR --tag TAG [--grid label=path,...] [--out DIR]\n", argv[0]); return 1; }
+        else if (s == "--templates") tmpls = nx();
+        else if (s == "--energies")  energies = nx();
+        else if (s == "--n-tmpl")    nTmpl = std::stoi(nx());
+        else { std::fprintf(stderr, "usage: %s --dir DIR [--tag TAG] [--grid label=path,...] "
+                                    "[--templates p,... --energies E,... --n-tmpl N] [--out DIR]\n", argv[0]); return 1; }
     }
     std::filesystem::create_directories(out);
     gStyle->SetOptStat(0);
@@ -155,15 +169,20 @@ int main(int argc, char** argv)
     std::mt19937 rng(7);
 
     if (!tag.empty()) {
-        const std::vector<std::string> labels = {"energy-integrated", "boolean readout"};
-        std::vector<io::CsvTable> tr, pr;
-        for (const std::string sfx : {"", "_noE"}) {
-            tr.push_back(io::ReadCsv(dir + "/tracks_" + tag + sfx + ".csv"));
-            pr.push_back(io::ReadCsv(dir + "/track_pairs_" + tag + sfx + ".csv"));
-        }
+        // Same table twice: k = 0 every object, k = 1 photon ID only. Pairs are
+        // built from photon-ID objects already, so the vertex plot has one series.
+        const std::vector<std::string> labels = {"all objects", "photon ID"};
+        const auto t0 = io::ReadCsv(dir + "/tracks_" + tag + ".csv");
+        const std::vector<io::CsvTable> tr = {t0, t0};
+        const auto pair = io::ReadCsv(dir + "/track_pairs_" + tag + ".csv");
+        auto sel = [&](int k, std::size_t r) { return tr[k].get(r, "matched") > 0.5 && (k == 0 || tr[k].get(r, "photon") > 0.5); };
+        std::vector<std::vector<double>> dth(2);
+        for (int k = 0; k < 2; ++k)
+            for (std::size_t r = 0; r < tr[k].size(); ++r)
+                if (sel(k, r)) dth[k].push_back(tr[k].get(r, "dtheta_mrad"));
 
         // Angle residual.
-        Overlay({Column(tr[0], "dtheta_mrad"), Column(tr[1], "dtheta_mrad")}, labels, "ang",
+        Overlay(dth, labels, "ang",
                 Form("Photon direction error, %s;|#theta_{reco} - #theta_{true}| [mrad];fraction of matched photons", tag.c_str()),
                 40, 0, 400, out + "/angle_resid_" + tag);
 
@@ -171,18 +190,17 @@ int main(int argc, char** argv)
         std::vector<std::vector<double>> er(2);
         for (int k = 0; k < 2; ++k)
             for (std::size_t r = 0; r < tr[k].size(); ++r)
-                if (tr[k].get(r, "matched") > 0.5 && tr[k].get(r, "true_E") > 0)
+                if (sel(k, r) && tr[k].get(r, "true_E") > 0)
                     er[k].push_back(tr[k].get(r, "E") / tr[k].get(r, "true_E"));
         Overlay(er, labels, "eratio",
                 Form("Reconstructed / true photon energy, %s;E_{reco} / E_{true};fraction of matched photons", tag.c_str()),
                 40, 0, 2, out + "/energy_ratio_" + tag);
 
         // Vertex z residual.
-        std::vector<std::vector<double>> dz(2);
-        for (int k = 0; k < 2; ++k)
-            for (std::size_t r = 0; r < pr[k].size(); ++r)
-                dz[k].push_back(pr[k].get(r, "vtx_z") - pr[k].get(r, "true_vz"));
-        Overlay(dz, labels, "vdz",
+        std::vector<std::vector<double>> dz(1);
+        for (std::size_t r = 0; r < pair.size(); ++r)
+            dz[0].push_back(pair.get(r, "vtx_z") - pair.get(r, "true_vz"));
+        Overlay(dz, {"photon-ID pairs"}, "vdz",
                 Form("Pair vertex from two photon lines, %s;z_{vertex,reco} - z_{vertex,true} [mm];fraction of reconstructed pairs", tag.c_str()),
                 40, -1000, 1000, out + "/vertex_dz_" + tag);
 
@@ -197,7 +215,7 @@ int main(int argc, char** argv)
                 std::vector<double> v;
                 for (std::size_t r = 0; r < tr[k].size(); ++r) {
                     const double n = tr[k].get(r, "nLayers");
-                    if (tr[k].get(r, "matched") > 0.5 && n >= edges[b] && n < edges[b + 1]) v.push_back(tr[k].get(r, "dtheta_mrad"));
+                    if (sel(k, r) && n >= edges[b] && n < edges[b + 1]) v.push_back(tr[k].get(r, "dtheta_mrad"));
                 }
                 if (v.size() < 20) continue;
                 const int i = g->GetN();
@@ -216,6 +234,61 @@ int main(int argc, char** argv)
         c->SaveAs((out + "/angle_vs_layers_" + tag + ".png").c_str());
     }
 
+    // Single-particle templates: photon-ID pass rate vs energy, feature shapes per species.
+    if (!tmpls.empty()) {
+        auto split = [](const std::string& s) {
+            std::vector<std::string> v; std::stringstream ss(s); std::string x;
+            while (std::getline(ss, x, ',')) v.push_back(x);
+            return v;
+        };
+        const auto ps = split(tmpls), es = split(energies);
+        auto* c = Canvas("rate", true);
+        c->SetLogx();
+        auto* mg = new TMultiGraph();
+        auto* leg = Legend(0.15, 0.15, 0.45, 0.42);
+        const std::vector<std::array<const char*, 4>> feats = {   // column, title, lo, hi
+            {"start", "shower start layer", "0", "44"}, {"tmaxPull", "shower-max pull (from start)", "-10", "10"},
+            {"medLayerE", "median energy per lit layer [MeV]", "0", "60"}, {"meanBars", "mean bars per lit layer", "0", "6"},
+            {"peakRatio", "peak / median layer energy", "0", "30"}, {"nLit", "lit layers", "0", "45"},
+            {"widthLate", "lateral RMS, late layers [bars]", "0", "4"}};
+        std::vector<std::vector<std::vector<double>>> fv(feats.size(), std::vector<std::vector<double>>(ps.size()));
+        std::vector<std::string> names;
+        for (std::size_t k = 0; k < ps.size(); ++k) {
+            std::string p = ps[k];
+            p.erase(std::remove_if(p.begin(), p.end(), [](char ch) { return ch == '+' || ch == '-'; }), p.end());
+            names.push_back(ps[k]);
+            auto* g = new TGraphErrors();
+            for (const auto& e : es) {
+                const std::string f = dir + "/tracks_tmpl_" + p + "_E" + e + ".csv";
+                if (!std::filesystem::exists(f)) continue;
+                const auto t = io::ReadCsv(f);
+                std::set<long> ev;
+                for (std::size_t r = 0; r < t.size(); ++r) {
+                    if (t.get(r, "photon") > 0.5) ev.insert(static_cast<long>(t.get(r, "eventID")));
+                    for (std::size_t j = 0; j < feats.size(); ++j) fv[j][k].push_back(t.get(r, feats[j][0]));
+                }
+                const double n = nTmpl, q = ev.size() / n;
+                const int i = g->GetN();
+                g->SetPoint(i, std::stod(e) * (1 + 0.03 * (k - 2.0)), std::max(q, 0.5 / n));   // small x offset per species
+                g->SetPointError(i, 0, std::sqrt(std::max(q * (1 - q), 1.0 / n) / n));         // binomial
+            }
+            Style(g, g, static_cast<int>(k));
+            mg->Add(g, "PL");
+            leg->AddEntry(g, ps[k].c_str(), "lp");
+        }
+        mg->SetTitle(Form("Photon ID on single particles (%d fired per point);particle energy [MeV];"
+                          "fraction with #geq 1 photon-ID object", nTmpl));
+        mg->Draw("A");
+        mg->SetMinimum(1e-4); mg->SetMaximum(2);
+        mg->GetXaxis()->SetLimits(50, 4000);
+        mg->GetYaxis()->SetTitleOffset(1.25);
+        leg->Draw();
+        c->SaveAs((out + "/tmpl_photon_rate.png").c_str());
+        for (std::size_t j = 0; j < feats.size(); ++j)
+            Overlay(fv[j], names, Form("f%zu", j), Form("%s, every object (all energies);%s;fraction of objects", feats[j][1], feats[j][1]),
+                    44, std::stod(feats[j][2]), std::stod(feats[j][3]), out + "/tmpl_" + feats[j][0]);
+    }
+
     // Grid comparison on the beam background.
     if (!grid.empty()) {
         std::vector<std::pair<std::string, std::string>> items;
@@ -228,7 +301,7 @@ int main(int argc, char** argv)
             c->SetLogx();
             auto* mg = new TMultiGraph();
             auto* leg = Legend(what == std::string("eff") ? 0.58 : 0.15, 0.70, what == std::string("eff") ? 0.94 : 0.50, 0.88);
-            for (std::size_t k = 0; k < items.size() && k < 3; ++k) {
+            for (std::size_t k = 0; k < items.size() && k < 5; ++k) {
                 const auto t = io::ReadCsv(items[k].second);
                 std::vector<std::array<double, 3>> pts;   // mu, value, error
                 for (std::size_t r = 0; r < t.size(); ++r) {
