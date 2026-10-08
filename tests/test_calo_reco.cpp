@@ -64,8 +64,7 @@ int main()
     }
     // Two equal-energy showers starting at different depths: rank pairing has no
     // way to tell which x goes with which y; depth pairing must get both right.
-    for (bool useE : {true, false}) {
-        rp.useEnergy = useE;
+    {
         std::vector<double> Ec(528, 0.0), Tc(528, 0.0);
         addShower(Ec, Tc, -35, 35, 0, 0, 1, 20, rp);
         addShower(Ec, Tc, 35, -35, 0, 0, 22, 20, rp);
@@ -73,7 +72,71 @@ int main()
         assert(ph.size() == 2);
         for (const auto& q : ph) assert(std::abs(q.x + q.y) < 4.0);   // (-35,35) or (35,-35), never a ghost
     }
-    rp.useEnergy = true;
+
+    // Photon ID. A shower: energy rising to a maximum near t_max(E), several bars wide.
+    auto addShowerProfile = [&](std::vector<double>& Ec, double x0, double y0, int start, double A = 120) {
+        for (int l = start; l < 44; ++l) {
+            const double t = (l - start + 0.5) * rp.layerThick / rp.X0;          // depth in X0
+            const double Elay = A * std::pow(t, 2.0) * std::exp(-t / 1.2);      // peaks ~2.4 X0 in
+            const double c = (l % 2 == 0) ? y0 : x0;
+            for (int st = 0; st < 12; ++st) {
+                const double d = g.stripPos(st) - c;
+                const double e = Elay * std::exp(-d * d / (2 * 64.0));
+                if (e > 0.05) Ec[l * 12 + st] += e;
+            }
+        }
+    };
+    {   // EM shower from the front -> EM, a photon
+        std::vector<double> Ec(528, 0.0), Tc(528, 1.0);
+        addShowerProfile(Ec, 5, -5, 1);
+        auto ph = ReconstructDepth(Ec, Tc, g, rp);
+        assert(ph.size() == 1 && ph[0].cls == kEM && ph[0].photon);
+    }
+    {   // MIP: 5.6 MeV in one bar per layer through all 44 layers -> MIP, not a photon
+        std::vector<double> Ec(528, 0.0), Tc(528, 1.0);
+        for (int l = 0; l < 44; ++l) Ec[l * 12 + 6] = 5.6 * (1 + 0.1 * ((l * 7) % 5 - 2) / 2.0);
+        auto ph = ReconstructDepth(Ec, Tc, g, rp);
+        assert(ph.size() == 1 && ph[0].cls == kMIP && !ph[0].photon);
+        assert(ph[0].meanBars < 1.1 && std::abs(ph[0].medLayerE - 5.6) < 0.6);
+    }
+    {   // Shower starting at layer 20 (14 cm deep: a neutron-like interaction) -> hadronic
+        std::vector<double> Ec(528, 0.0), Tc(528, 1.0);
+        addShowerProfile(Ec, -20, 20, 20);
+        auto ph = ReconstructDepth(Ec, Tc, g, rp);
+        assert(ph.size() == 1 && ph[0].cls == kHadronic && !ph[0].photon);
+    }
+    {   // Si veto: hits on the line in all 6 planes -> charged; backsplash in planes 4-5 only -> not
+        std::vector<double> Ec(528, 0.0), Tc(528, 1.0);
+        addShowerProfile(Ec, 5, -5, 1);
+        auto ph = ReconstructDepth(Ec, Tc, g, rp);
+        std::vector<TrackerHit> through, splash;
+        for (int i = 0; i < 6; ++i) through.push_back({i, ph[0].x, ph[0].y});
+        splash = {{4, ph[0].x, ph[0].y}, {5, ph[0].x + 3, ph[0].y}};
+        auto a1 = ph, a2 = ph;
+        ApplyVeto(a1, through, rp);
+        ApplyVeto(a2, splash, rp);
+        assert(a1[0].vetoInfo && a1[0].charged && a1[0].vetoPlanes == 6 && !a1[0].photon);
+        assert(!a2[0].charged && a2[0].photon);
+        // Standalone Si track recovers the slope.
+        std::vector<TrackerHit> slanted;
+        for (int i = 0; i < 6; ++i) {
+            const double z = TrackerZ(i, rp) - rp.frontZ;
+            slanted.push_back({i, ph[0].x + 0.01 * z, ph[0].y - 0.02 * z});
+        }
+        auto a3 = ph;
+        ApplyVeto(a3, slanted, rp);
+        assert(a3[0].charged && std::abs(a3[0].siTx - 0.01) < 1e-9 && std::abs(a3[0].siTy + 0.02) < 1e-9);
+    }
+    {   // Satellite: a 5 % shower starting 7 layers after a big one, 10 cm away: EM on its own
+        // (start 8 is within the cut at 75 MeV), dropped as the big shower's offspring
+        std::vector<double> Ec(528, 0.0), Tc(528, 1.0);
+        addShowerProfile(Ec, -35, -35, 1);
+        addShowerProfile(Ec, 35, 35, 8, 6);
+        auto ph = ReconstructDepth(Ec, Tc, g, rp);
+        int nPh = 0;
+        for (const auto& q : ph) nPh += q.photon;
+        assert(ph.size() == 2 && nPh == 1);
+    }
 
     // Closest approach: two lines from (5, -3, -450) meet there.
     {

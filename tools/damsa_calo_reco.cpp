@@ -44,13 +44,13 @@ namespace {
 
 struct Hit   { int cell; double E, t; };
 struct Truth { double E, x, y, ux, uy, uz, vx, vy, vz; int pdg, parent, primary, draw; };
-struct Electron { std::vector<Hit> hits; std::vector<Truth> truth; };
+struct Electron { std::vector<Hit> hits; std::vector<Truth> truth; std::vector<calo::TrackerHit> si; };
 
 enum Cls { TP, FP_acc, FP_shower, FP_split, FP_ghost, FP_unm, NCls };
 const char* kClsName[NCls] = {"TP", "FP_acc", "FP_shower", "FP_split", "FP_ghost", "FP_unm"};
 
 struct Args {
-    std::string hits, truth, outCsv = "output/reco_grid.csv";
+    std::string hits, truth, tracker, outCsv = "output/reco_grid.csv";
     long long nLib = 0, nTrials = 2000;
     std::vector<std::string> modes = {"dark"};
     std::vector<double> fracs = {1.0}, windows_ns = {100.0}, sigmaT_ns = {1.0},
@@ -60,7 +60,6 @@ struct Args {
     double resA = 0.02, resB = 0.01, matchR = 36.0, lever_mm = 470.0;
     calo::Geometry geo;
     std::string reco = "depth";   // depth (Calo-Reco-Explained §2.13) | summed (old: layers summed, energy-rank x/y)
-    bool useEnergy = true;        // false: boolean readout (depth reco only)
     std::uint64_t rngSeed = 12345;
 };
 
@@ -88,6 +87,11 @@ std::vector<Electron> LoadLibrary(const Args& a, int& nCells)
         ev[h.eventID].hits.push_back({h.cellID, h.edep_MeV, h.t_mean_ns});
         nCells = std::max(nCells, h.cellID + 1);
     }
+    // Si hits (charged-particle veto, §2.14): an electron with only tracker hits
+    // still joins the library, so its random vetoes are overlaid too.
+    if (!a.tracker.empty())
+        for (const auto& h : io::ReadNTuple<io::TrackerHitRow>(a.tracker))
+            ev[h.eventID].si.push_back({h.plane, h.x_mm, h.y_mm});
     for (const auto& p : io::ReadNTuple<io::ParticleRow>(a.truth)) {
         if (p.pz <= 0 || p.energy_MeV < a.truthMin) continue;
         if (p.pdg != 22 && std::abs(p.pdg) != 11) continue;   // showering particles only
@@ -127,6 +131,7 @@ int main(int argc, char** argv)
         auto nx = [&]() { return std::string(argv[++i]); };
         if      (s == "--hits")                a.hits = nx();
         else if (s == "--truth")               a.truth = nx();
+        else if (s == "--tracker")             a.tracker = nx();
         else if (s == "--n-library-electrons") a.nLib = std::stoll(nx());
         else if (s == "--beam-mode")           a.modes = ParseList<std::string>(nx());
         else if (s == "--bunch-frac")          a.fracs = ParseList<double>(nx());
@@ -151,17 +156,16 @@ int main(int argc, char** argv)
         else if (s == "--out-csv")             a.outCsv = nx();
         else if (s == "--seed")                a.rngSeed = std::stoull(nx());
         else if (s == "--reco")                a.reco = nx();
-        else if (s == "--no-energy")           a.useEnergy = false;
         else {
             std::fprintf(stderr,
-                "Usage: %s --hits calo_hits.root --truth calo_face_particles.root\n"
+                "Usage: %s --hits calo_hits.root --truth calo_face_particles.root [--tracker tracker_hits.root]\n"
                 "          --n-library-electrons N [grid lists: --beam-mode --bunch-frac\n"
                 "          --window-ns --sigma-t-ns --mass-MeV --e-bins-GeV (centres, +/-0.5)]\n"
                 "          [--mass-window-MeV 20 --threshold-MeV 5 --z-cut 0.8\n"
                 "           --cell-threshold-MeV 0.1 --seed-MeV 0.5 --cluster-min-MeV 5 --eff-min-MeV 10\n"
                 "           --res-a 0.02 --res-b 0.01 --match-radius-mm 36\n"
                 "           --lever-arm-mm 470 --calo-xy-mm 120 --n-per-layer 12\n"
-                "           --reco depth|summed (default depth) --no-energy (boolean readout)\n"
+                "           --reco depth|summed (default depth)\n"
                 "           --n-trials 2000 --out-csv PATH --seed N]\n", argv[0]);
             return 1;
         }
@@ -176,7 +180,6 @@ int main(int argc, char** argv)
     if (a.reco != "depth" && a.reco != "summed") { std::fprintf(stderr, "Unknown --reco %s\n", a.reco.c_str()); return 1; }
     calo::RecoParams rp;
     rp.seed = a.seed;
-    rp.useEnergy = a.useEnergy;
 
     int nCells = 0;
     const auto lib = LoadLibrary(a, nCells);
@@ -235,12 +238,14 @@ int main(int argc, char** argv)
             std::fill(E.begin(), E.end(), 0.0);
             std::fill(Et.begin(), Et.end(), 0.0);
             std::vector<Truth> tr;
+            std::vector<calo::TrackerHit> siHits;   // ponytail: no Si timing; every hit in the window can veto
             std::vector<std::pair<std::size_t, std::size_t>> drawRange;   // tr[first, second) per electron
             std::uniform_int_distribution<int> bunch(0, nb - 1);
             for (long long k = 0; k < m; ++k) {
                 const Electron& e = lib[pick(rng)];
                 const double toff = bunch(rng) * spec.spacing_s * 1e9;
                 for (const auto& h : e.hits) { E[h.cell] += h.E; Et[h.cell] += h.E * (h.t + toff); }
+                siHits.insert(siHits.end(), e.si.begin(), e.si.end());
                 const std::size_t first = tr.size();
                 for (auto t : e.truth) { t.draw = int(k); tr.push_back(t); }
                 if (tr.size() - first >= 2) drawRange.push_back({first, tr.size()});
@@ -283,7 +288,10 @@ int main(int argc, char** argv)
                 }
                 std::vector<calo::Photon> raw;
                 if (a.reco == "depth") {
-                    for (const auto& q : calo::ReconstructDepth(Ec, Tc, a.geo, rp)) raw.push_back({q.E, q.x, q.y, q.t});
+                    // Photon ID (§2.14): EM-shower class, not vetoed by the Si planes.
+                    auto obj = calo::ReconstructDepth(Ec, Tc, a.geo, rp);
+                    if (!a.tracker.empty()) calo::ApplyVeto(obj, siHits, rp);
+                    for (const auto& q : obj) if (q.photon) raw.push_back({q.E, q.x, q.y, q.t});
                 } else {
                     // Old path: each projection summed over its layers (depth lost), energy-rank x/y.
                     std::vector<calo::Strip> px(nPer), py(nPer);
