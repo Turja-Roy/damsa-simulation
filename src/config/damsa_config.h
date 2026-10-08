@@ -93,6 +93,10 @@ inline double     gALPVertexZ_cm  = -45.0; // ALP production vertex z (target ce
 // electrons but the hit-level study far fewer, and hits are the big file.
 inline long       gCaloHitEventLimit  = -1;
 inline double     gCaloHitMinEdep_MeV = 0.05;  // per-cell storage floor (not the analysis threshold)
+// Truth trajectories inside the CsI (event displays). 0 = off (default: they
+// are only for displays and grow with shower size), -1 = all events, N = first N.
+inline long       gTrajEventLimit = 0;
+inline double     gTrajMinE_MeV   = 10.0;  // secondaries born with less are not traced
 inline int        gALPRefireFactor = 1;    // number of times each ALP row is re-fired
 
 // ── Level B: beam time structure (plan.md §3) ───────────────────────────────

@@ -167,6 +167,8 @@ int main(int argc, char** argv)
         if      (tree == Schema<AlpDecayRow>::kName) schema = "alp";
         else if (tree == Schema<Pi0Row>::kName)      schema = "pi0";
         else if (tree == Schema<CaloHitRow>::kName)  schema = "calohit";
+        else if (tree == Schema<TrackerHitRow>::kName) schema = "trackerhit";
+        else if (tree == Schema<CaloTrajRow>::kName) schema = "calotraj";
         else                                         schema = "particle";
     } else {
         schema = SniffSchema(in);
@@ -179,6 +181,8 @@ int main(int argc, char** argv)
         if      (*schema == "alp") n = ToCsv<AlpDecayRow>(in, out, kAlpDecayCsvHeader, WriteAlpDecayCsvRow, limit);
         else if (*schema == "pi0") n = ToCsv<Pi0Row>(in, out, kPi0CsvHeader, WritePi0CsvRow, limit);
         else if (*schema == "calohit") n = ToCsv<CaloHitRow>(in, out, kCaloHitCsvHeader, WriteCaloHitCsvRow, limit);
+        else if (*schema == "trackerhit") n = ToCsv<TrackerHitRow>(in, out, kTrackerHitCsvHeader, WriteTrackerHitCsvRow, limit);
+        else if (*schema == "calotraj") n = ToCsv<CaloTrajRow>(in, out, kCaloTrajCsvHeader, WriteCaloTrajCsvRow, limit);
         else                       n = ToCsv<ParticleRow>(in, out, kParticleCsvHeader, WriteParticleCsvRow, limit);
     }
     else if (*schema == "alp")      n = Convert<AlpDecayRow>(in, out, limit);

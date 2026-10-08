@@ -215,6 +215,8 @@ int main(int argc, char** argv)
         MergeRows<io::Pi0Row>(prefixes, outDir, "pi0_decays.root", offsets);
         MergeRows<io::ParticleRow>(prefixes, outDir, "calo_face_particles.root", offsets);
         MergeRows<io::CaloHitRow>(prefixes, outDir, "calo_hits.root", offsets);
+        MergeRows<io::TrackerHitRow>(prefixes, outDir, "tracker_hits.root", offsets);
+        MergeRows<io::CaloTrajRow>(prefixes, outDir, "calo_traj.root", offsets);
     } catch (const std::exception& e) {
         std::fprintf(stderr, "ERROR: %s\n", e.what());
         return 1;

@@ -5,6 +5,7 @@
 #include "G4Event.hh"
 #include "analysis.h"
 #include "pi0DecayData.h"
+#include "detector.h"
 
 class DamsaEventAction : public G4UserEventAction
 {
@@ -33,6 +34,8 @@ void DamsaEventAction::EndOfEventAction(const G4Event* event)
     for (const auto& kv : state->pi0CaloEnergy_MeV) {
         DamsaPi0Collector::Instance()->AddCaloEnergy(evtID, kv.first, kv.second);
     }
+    if (DamsaConfig::gTrajEventLimit != 0)
+        DamsaCaloTrajCollector::Instance()->AddEvent(std::move(state->traj), DamsaConfig::gTrajEventLimit);
 }
 
 #endif

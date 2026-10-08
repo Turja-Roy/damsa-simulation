@@ -41,6 +41,7 @@ private:
     G4UIcmdWithAString*        fSetOutputPrefixCmd;
     G4UIcmdWithABool*          fSetWriteCSVCmd;
     G4UIcmdWithAnInteger*      fSetCaloHitEventLimitCmd;
+    G4UIcmdWithAnInteger*      fSetTrajEventLimitCmd;
     G4UIcmdWithABool*          fSetWriteNTupleCmd;
     G4UIcmdWithAString*        fSetBeamModeCmd;
     G4UIcmdWithABool*          fSetPulsedBeamCmd;
@@ -59,7 +60,7 @@ inline DamsaDetectorMessenger::DamsaDetectorMessenger(DamsaDetectorConstruction*
 : fDetector(det), fDetDir(nullptr),
   fSetVDCLengthCmd(nullptr), fSetTargetLengthCmd(nullptr), fSetCaloSizeXYCmd(nullptr),
   fSetOutputPrefixCmd(nullptr),
-  fSetWriteCSVCmd(nullptr), fSetCaloHitEventLimitCmd(nullptr), fSetWriteNTupleCmd(nullptr),
+  fSetWriteCSVCmd(nullptr), fSetCaloHitEventLimitCmd(nullptr), fSetTrajEventLimitCmd(nullptr), fSetWriteNTupleCmd(nullptr),
   fSetBeamModeCmd(nullptr),
   fSetPulsedBeamCmd(nullptr), fSetReadoutGateCmd(nullptr), fSetBeamSpotSigmaCmd(nullptr)
 {
@@ -112,6 +113,12 @@ inline DamsaDetectorMessenger::DamsaDetectorMessenger(DamsaDetectorConstruction*
     fSetCaloHitEventLimitCmd->SetParameterName("N", false);
     fSetCaloHitEventLimitCmd->AvailableForStates(G4State_PreInit, G4State_Idle);
 
+    fSetTrajEventLimitCmd = new G4UIcmdWithAnInteger("/damsa/setTrajEventLimit", this);
+    fSetTrajEventLimitCmd->SetGuidance("Record truth trajectories inside the CsI for the first N events");
+    fSetTrajEventLimitCmd->SetGuidance("(0 = off, the default; -1 = all). For event displays.");
+    fSetTrajEventLimitCmd->SetParameterName("N", false);
+    fSetTrajEventLimitCmd->AvailableForStates(G4State_PreInit, G4State_Idle);
+
     fSetWriteNTupleCmd = new G4UIcmdWithABool("/damsa/setWriteNTuple", this);
     fSetWriteNTupleCmd->SetGuidance("Write the RNTuple outputs (default true).");
     fSetWriteNTupleCmd->SetParameterName("On", false);
@@ -157,6 +164,7 @@ inline DamsaDetectorMessenger::~DamsaDetectorMessenger()
     delete fSetOutputPrefixCmd;
     delete fSetWriteCSVCmd;
     delete fSetCaloHitEventLimitCmd;
+    delete fSetTrajEventLimitCmd;
     delete fSetWriteNTupleCmd;
     delete fSetBeamModeCmd;
     delete fSetPulsedBeamCmd;
@@ -173,6 +181,8 @@ inline void DamsaDetectorMessenger::SetNewValue(G4UIcommand* cmd, G4String val)
         fDetector->SetTargetLength(fSetTargetLengthCmd->GetNewDoubleValue(val));
     } else if (cmd == fSetCaloSizeXYCmd) {
         fDetector->SetCaloSizeXY(fSetCaloSizeXYCmd->GetNewDoubleValue(val));
+    } else if (cmd == fSetTrajEventLimitCmd) {
+        DamsaConfig::gTrajEventLimit = G4UIcmdWithAnInteger::GetNewIntValue(val);
     } else if (cmd == fSetCaloHitEventLimitCmd) {
         DamsaConfig::gCaloHitEventLimit = G4UIcmdWithAnInteger::GetNewIntValue(val);
     } else if (cmd == fSetWriteCSVCmd) {

@@ -67,6 +67,13 @@ public:
     // of the source shower and deliberately not counted.
     std::set<G4int>            scatteredOutsideTarget;
 
+    // Truth trajectories inside the CsI (event displays, gTrajEventLimit != 0):
+    // tracks that crossed the calo face, the tracks already traced (their entry
+    // point is written once), and this event's points until EndOfEventAction.
+    std::set<G4int>                       faceTracks;
+    std::set<G4int>                       traced;
+    std::vector<damsa::io::CaloTrajRow>   traj;
+
     G4int PrimaryOf(G4int trackID) const {
         return (trackID >= 0 && trackID < static_cast<G4int>(trackToPrimary.size()))
                ? trackToPrimary[trackID] : -1;
@@ -79,6 +86,9 @@ public:
         pi0CaloEnergy_MeV.clear();
         trackToPrimary.clear();   // keeps capacity across events
         scatteredOutsideTarget.clear();
+        faceTracks.clear();
+        traced.clear();
+        traj.clear();
     }
 
 private:

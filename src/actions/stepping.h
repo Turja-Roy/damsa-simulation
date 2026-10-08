@@ -14,6 +14,7 @@
 #include "pi0DecayData.h"
 #include "damsa_config.h"
 #include "alp_generator.h"
+#include "detector.h"
 
 class DamsaSteppingAction : public G4UserSteppingAction
 {
@@ -154,6 +155,31 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
     G4StepPoint* postStepPoint = step->GetPostStepPoint();
     if(!postStepPoint) return;
 
+    // ── Truth trajectories inside the CsI (event displays) ──────────────────
+    // Tracks that crossed the calo face, and secondaries born with
+    // >= gTrajMinE_MeV, get every step end point inside the crystals recorded
+    // (plus their first entry point). Off unless /damsa/setTrajEventLimit.
+    if (DamsaConfig::gTrajEventLimit != 0 &&
+        !DamsaCaloTrajCollector::Instance()->Full(DamsaConfig::gTrajEventLimit)) {
+        DamsaPi0TrackingState* st = DamsaPi0TrackingState::Instance();
+        if (st->faceTracks.count(trackID) ||
+            track->GetVertexKineticEnergy() >= DamsaConfig::gTrajMinE_MeV * MeV) {
+            const G4VPhysicalVolume* pv = step->GetPreStepPoint()->GetTouchableHandle()->GetVolume();
+            if (pv && (pv->GetName() == "physCalorimeter" || pv->GetName() == "physECAL")) {
+                auto push = [&](const G4StepPoint* sp) {
+                    damsa::io::CaloTrajRow r;
+                    r.eventID = eventID; r.trackID = trackID; r.parentID = track->GetParentID();
+                    r.pdg = track->GetDefinition()->GetPDGEncoding();
+                    r.x_mm = sp->GetPosition().x() / mm; r.y_mm = sp->GetPosition().y() / mm;
+                    r.z_mm = sp->GetPosition().z() / mm; r.E_MeV = sp->GetKineticEnergy() / MeV;
+                    st->traj.push_back(r);
+                };
+                if (st->traced.insert(trackID).second) push(step->GetPreStepPoint());
+                push(postStepPoint);
+            }
+        }
+    }
+
     // ── Case-3 bookkeeping: photon scattered outside the target ─────────────
     // A non-transport step that leaves the photon alive is a Compton/Rayleigh
     // scatter; absorbing processes (phot, conv) kill it.
@@ -247,6 +273,7 @@ void DamsaSteppingAction::UserSteppingAction(const G4Step* step)
         const G4String key = forward ? "CaloEntrance" : "CaloEntranceBack";
         if(!DamsaAnalysis::Instance()->WasTrackRecorded(trackID, key)) {
             DamsaAnalysis::Instance()->RecordParticle(particleName, energy, key, angle, trackID, isPrimary);
+            if (forward) DamsaPi0TrackingState::Instance()->faceTracks.insert(trackID);   // traced inside the CsI
             // Record particle data at calo face for SNR analysis (with G4 event weight)
             DamsaFluxCollector::Instance()->RecordCaloFaceParticle(
                 pdgCode, energy, time,

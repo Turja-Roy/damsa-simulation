@@ -43,6 +43,7 @@ for i in $(seq 0 $((NCHUNKS-1))); do
     {
         echo "/run/initialize"
         echo "/random/setSeeds $s1 $s2"
+        echo "/damsa/setTrajEventLimit ${TRAJ_EVENTS:-100}"   # truth trajectories for event displays
         echo "/damsa/setOutputPrefix ${tag}_"   # slash-free (CLAUDE.md gotcha)
         echo "/run/beamOn $EVENTS"
     } > "$mac"
@@ -51,7 +52,8 @@ for i in $(seq 0 $((NCHUNKS-1))); do
     if [[ -s "output/${tag}_alplib_brems_flux.csv" \
        && -s "output/${tag}_pi0_decays.root" \
        && -s "output/${tag}_calo_face_particles.root" \
-       && -s "output/${tag}_calo_hits.root" ]]; then
+       && -s "output/${tag}_calo_hits.root" \
+       && -s "output/${tag}_tracker_hits.root" ]]; then
         echo "--- [$((i+1))/$NCHUNKS] $tag  already done, skipping ---"
         continue
     fi
@@ -72,7 +74,9 @@ for i in $(seq 0 $((NCHUNKS-1))); do
                 output/${tag}_alplib_brems_flux.csv|\
                 output/${tag}_pi0_decays.root|\
                 output/${tag}_calo_face_particles.root|\
-                output/${tag}_calo_hits.root) : ;;            # keep
+                output/${tag}_calo_hits.root|\
+                output/${tag}_tracker_hits.root|\
+                output/${tag}_calo_traj.root) : ;;            # keep
                 *) rm -f "$g" ;;
             esac
         done

@@ -375,15 +375,10 @@ void DamsaDetectorConstruction::ConstructSDandField()
 {
     auto* sdManager = G4SDManager::GetSDMpointer();
 
-    auto* trackerSD = new G4MultiFunctionalDetector("TrackerSD");
+    // Si planes: per-track hits for the charged-particle veto (detector.h).
+    // Replaces a G4PSEnergyDeposit scorer whose output nothing read.
+    auto* trackerSD = new DamsaTrackerSD("TrackerHitSD");
     sdManager->AddNewDetector(trackerSD);
-
-    auto* energyDep = new G4PSEnergyDeposit("EnergyDeposit");
-    trackerSD->RegisterPrimitive(energyDep);
-
-    auto* nofSecondary = new G4PSNofSecondary("NofSecondary");
-    trackerSD->RegisterPrimitive(nofSecondary);
-
     fLogicSiTracker->SetSensitiveDetector(trackerSD);
 
     // Timed per-crystal readout (detector.h). Replaces the G4PSEnergyDeposit

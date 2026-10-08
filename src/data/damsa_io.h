@@ -105,6 +105,21 @@ struct CaloHitRow {
     double t_mean_ns = 0;    // energy-weighted mean deposit time
 };
 
+// One track's passage through one Si tracker plane in one event (summed over
+// its steps; energy-weighted position). Used for the charged-particle veto.
+struct TrackerHitRow {
+    int    eventID = 0, plane = 0, trackID = 0, pdg = 0;
+    double x_mm = 0, y_mm = 0, z_mm = 0, edep_MeV = 0, t_ns = 0;
+};
+
+// Truth trajectory point inside the CsI (a step end point): for particles that
+// crossed the calo face and secondaries born with >= gTrajMinE_MeV. Event displays
+// draw these as polylines per track.
+struct CaloTrajRow {
+    int    eventID = 0, trackID = 0, parentID = 0, pdg = 0;
+    double x_mm = 0, y_mm = 0, z_mm = 0, E_MeV = 0;   // E: kinetic energy at the point
+};
+
 // The ~1 GB files. Momenta are direction components; weight is events/day.
 struct AlpDecayRow {
     double E1 = 0, px1 = 0, py1 = 0, pz1 = 0;
@@ -158,6 +173,39 @@ template <> struct Schema<CaloHitRow> {
         return std::array{ std::pair{"edep_MeV",   &CaloHitRow::edep_MeV},
                            std::pair{"t_first_ns", &CaloHitRow::t_first_ns},
                            std::pair{"t_mean_ns",  &CaloHitRow::t_mean_ns} };
+    }
+};
+
+template <> struct Schema<TrackerHitRow> {
+    static constexpr const char* kName = "tracker_hits";
+    static constexpr auto Ints() {
+        return std::array{ std::pair{"eventID", &TrackerHitRow::eventID},
+                           std::pair{"plane",   &TrackerHitRow::plane},
+                           std::pair{"trackID", &TrackerHitRow::trackID},
+                           std::pair{"pdg",     &TrackerHitRow::pdg} };
+    }
+    static constexpr auto Dbls() {
+        return std::array{ std::pair{"x_mm",     &TrackerHitRow::x_mm},
+                           std::pair{"y_mm",     &TrackerHitRow::y_mm},
+                           std::pair{"z_mm",     &TrackerHitRow::z_mm},
+                           std::pair{"edep_MeV", &TrackerHitRow::edep_MeV},
+                           std::pair{"t_ns",     &TrackerHitRow::t_ns} };
+    }
+};
+
+template <> struct Schema<CaloTrajRow> {
+    static constexpr const char* kName = "calo_traj";
+    static constexpr auto Ints() {
+        return std::array{ std::pair{"eventID",  &CaloTrajRow::eventID},
+                           std::pair{"trackID",  &CaloTrajRow::trackID},
+                           std::pair{"parentID", &CaloTrajRow::parentID},
+                           std::pair{"pdg",      &CaloTrajRow::pdg} };
+    }
+    static constexpr auto Dbls() {
+        return std::array{ std::pair{"x_mm",  &CaloTrajRow::x_mm},
+                           std::pair{"y_mm",  &CaloTrajRow::y_mm},
+                           std::pair{"z_mm",  &CaloTrajRow::z_mm},
+                           std::pair{"E_MeV", &CaloTrajRow::E_MeV} };
     }
 };
 
@@ -336,7 +384,8 @@ inline long long NTupleEntries(const std::string& path, const std::string& treeN
 inline std::string SniffTree(const std::string& path)
 {
     for (const char* n : {Schema<AlpDecayRow>::kName, Schema<Pi0Row>::kName,
-                          Schema<ParticleRow>::kName, Schema<CaloHitRow>::kName})
+                          Schema<ParticleRow>::kName, Schema<CaloHitRow>::kName,
+                          Schema<TrackerHitRow>::kName, Schema<CaloTrajRow>::kName})
         if (NTupleEntries(path, n) >= 0) return n;
     return "";
 }
@@ -386,6 +435,26 @@ inline void WriteCaloHitCsvRow(std::ostream& o, const CaloHitRow& h)
     o << h.eventID << "," << h.cellID << ","
       << std::scientific << std::setprecision(6)
       << h.edep_MeV << "," << h.t_first_ns << "," << h.t_mean_ns << "\n";
+}
+
+inline constexpr const char* kTrackerHitCsvHeader =
+    "eventID,plane,trackID,pdg,x_mm,y_mm,z_mm,edep_MeV,t_ns";
+
+inline void WriteTrackerHitCsvRow(std::ostream& o, const TrackerHitRow& h)
+{
+    o << h.eventID << "," << h.plane << "," << h.trackID << "," << h.pdg << ","
+      << std::scientific << std::setprecision(6)
+      << h.x_mm << "," << h.y_mm << "," << h.z_mm << "," << h.edep_MeV << "," << h.t_ns << "\n";
+}
+
+inline constexpr const char* kCaloTrajCsvHeader =
+    "eventID,trackID,parentID,pdg,x_mm,y_mm,z_mm,E_MeV";
+
+inline void WriteCaloTrajCsvRow(std::ostream& o, const CaloTrajRow& r)
+{
+    o << r.eventID << "," << r.trackID << "," << r.parentID << "," << r.pdg << ","
+      << std::scientific << std::setprecision(6)
+      << r.x_mm << "," << r.y_mm << "," << r.z_mm << "," << r.E_MeV << "\n";
 }
 
 inline constexpr const char* kPi0CsvHeader =

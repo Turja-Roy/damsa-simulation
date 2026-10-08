@@ -16,5 +16,7 @@
 # Calo crystal hits for the first 20k injected events only: a ~4 GeV pair lights
 # ~330 cells, so 200k events would write ~1.5 GB of hits per mass.
 /damsa/setCaloHitEventLimit 20000
+# Truth trajectories inside the CsI for the first 200 events (event displays).
+/damsa/setTrajEventLimit 200
 
 /run/initialize
