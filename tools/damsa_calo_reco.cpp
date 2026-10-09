@@ -50,6 +50,7 @@ enum Cls { TP, FP_acc, FP_shower, FP_split, FP_ghost, FP_unm, NCls };
 const char* kClsName[NCls] = {"TP", "FP_acc", "FP_shower", "FP_split", "FP_ghost", "FP_unm"};
 
 struct Args {
+    long long siMaxHits = 120;   // Si hits per window above which the veto is off (see the overlay)
     std::string hits, truth, tracker, outCsv = "output/reco_grid.csv";
     long long nLib = 0, nTrials = 2000;
     std::vector<std::string> modes = {"dark"};
@@ -132,6 +133,7 @@ int main(int argc, char** argv)
         if      (s == "--hits")                a.hits = nx();
         else if (s == "--truth")               a.truth = nx();
         else if (s == "--tracker")             a.tracker = nx();
+        else if (s == "--si-max-hits")         a.siMaxHits = std::stoll(nx());
         else if (s == "--n-library-electrons") a.nLib = std::stoll(nx());
         else if (s == "--beam-mode")           a.modes = ParseList<std::string>(nx());
         else if (s == "--bunch-frac")          a.fracs = ParseList<double>(nx());
@@ -158,7 +160,7 @@ int main(int argc, char** argv)
         else if (s == "--reco")                a.reco = nx();
         else {
             std::fprintf(stderr,
-                "Usage: %s --hits calo_hits.root --truth calo_face_particles.root [--tracker tracker_hits.root]\n"
+                "Usage: %s --hits calo_hits.root --truth calo_face_particles.root [--tracker tracker_hits.root --si-max-hits 120]\n"
                 "          --n-library-electrons N [grid lists: --beam-mode --bunch-frac\n"
                 "          --window-ns --sigma-t-ns --mass-MeV --e-bins-GeV (centres, +/-0.5)]\n"
                 "          [--mass-window-MeV 20 --threshold-MeV 5 --z-cut 0.8\n"
@@ -224,6 +226,7 @@ int main(int argc, char** argv)
             ac.cand.assign(nM * nE * 2, {});
         }
         double sumOcc = 0, sumBunches = 0;
+        long long siSaturated = 0;
 
         std::vector<double> E(nCells), Et(nCells);
         for (long long g = 0; g < a.nTrials; ++g) {
@@ -238,7 +241,7 @@ int main(int argc, char** argv)
             std::fill(E.begin(), E.end(), 0.0);
             std::fill(Et.begin(), Et.end(), 0.0);
             std::vector<Truth> tr;
-            std::vector<calo::TrackerHit> siHits;   // ponytail: no Si timing; every hit in the window can veto
+            std::vector<calo::TrackerHit> siHits;
             std::vector<std::pair<std::size_t, std::size_t>> drawRange;   // tr[first, second) per electron
             std::uniform_int_distribution<int> bunch(0, nb - 1);
             for (long long k = 0; k < m; ++k) {
@@ -269,6 +272,18 @@ int main(int argc, char** argv)
                         hasPair[mi * nE + ei] = 1;
             }
 
+            // Si tracks once per window (they do not depend on sigma_t). No Si
+            // timing yet, so every hit in the window can veto; above siMaxHits
+            // (~20 per plane) random 4-plane coincidences make the veto
+            // meaningless and the O(n^3) tracking too slow (07_reco hit 8 h at
+            // LESA), so it is switched off for that window and counted.
+            // ponytail: needs Si timing (hit t + bunch offset) to work at high mu.
+            std::vector<calo::SiTrack> siTracks;
+            if (!a.tracker.empty()) {
+                if (static_cast<long long>(siHits.size()) <= a.siMaxHits) siTracks = calo::FindSiTracks(siHits, rp);
+                else ++siSaturated;
+            }
+
             for (std::size_t si = 0; si < a.sigmaT_ns.size(); ++si) {
                 const double sigT = a.sigmaT_ns[si];
                 Acc& ac = accs[si];
@@ -290,7 +305,7 @@ int main(int argc, char** argv)
                 if (a.reco == "depth") {
                     // Photon ID (§2.14): EM-shower class, not vetoed by the Si planes.
                     auto obj = calo::ReconstructDepth(Ec, Tc, a.geo, rp);
-                    if (!a.tracker.empty()) calo::ApplyVeto(obj, siHits, rp);
+                    if (!a.tracker.empty()) calo::ApplyVeto(obj, siTracks, rp);
                     for (const auto& q : obj) if (q.photon) raw.push_back({q.E, q.x, q.y, q.t});
                 } else {
                     // Old path: each projection summed over its layers (depth lost), energy-rank x/y.
@@ -380,9 +395,11 @@ int main(int argc, char** argv)
             const auto& cand = ac.cand;
             const long long nTruthPh = ac.nTruthPh, nFound = ac.nFound, nReco = ac.nReco,
                             nRecoMatched = ac.nRecoMatched;
-            std::printf("=== %s f=%g W=%g ns sigma_t=%g ns: mu=%.3g, photon eff %.3f purity %.3f\n",
+            std::printf("=== %s f=%g W=%g ns sigma_t=%g ns: mu=%.3g, photon eff %.3f purity %.3f, Si veto off in %.3f of windows\n",
                         mode.c_str(), f, w, sigT, mu,
-                        nTruthPh ? double(nFound) / nTruthPh : 0.0, nReco ? double(nRecoMatched) / nReco : 0.0);
+                        nTruthPh ? double(nFound) / nTruthPh : 0.0, nReco ? double(nRecoMatched) / nReco : 0.0,
+                        double(siSaturated) / a.nTrials);
+            std::fflush(stdout);   // progress visible in the Slurm log while running
             for (std::size_t mi = 0; mi < nM; ++mi)
             for (std::size_t ei = 0; ei < nE; ++ei)
             for (int zc = 0; zc < 2; ++zc) {

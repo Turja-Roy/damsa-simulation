@@ -171,8 +171,8 @@ void Display(int evt, const std::vector<double>& E, const std::vector<calo::Phot
             }
         }
         // Straight segments: reco objects, and truth photons when no trajectories.
-        auto line = [&](double a_mm, double slope, int col, int style, int width) {
-            double d1 = depth, u0 = a_mm / 10.0, u1 = u0 + slope * depth;
+        auto line = [&](double a_mm, double slope, int col, int style, int width, double dEnd) {
+            double d1 = dEnd, u0 = a_mm / 10.0, u1 = u0 + slope * dEnd;
             if (std::abs(u1) > h) {   // leaves through the side: stop at the edge
                 const double edge = u1 > 0 ? h : -h;
                 if (std::abs(slope) > 1e-12) d1 = (edge - u0) / slope;
@@ -185,9 +185,10 @@ void Display(int evt, const std::vector<double>& E, const std::vector<calo::Phot
         };
         if (!traj)
             for (const auto& t : tr)
-                if (t.pdg == 22 && t.E >= truthMin) line(v == 0 ? t.x : t.y, v == 0 ? t.tx : t.ty, cg, 2, 2);
+                if (t.pdg == 22 && t.E >= truthMin) line(v == 0 ? t.x : t.y, v == 0 ? t.tx : t.ty, cg, 2, 2, depth);
         for (const auto& q : ph)
-            line(v == 0 ? q.x : q.y, v == 0 ? q.tx : q.ty, reco, q.photon ? 1 : 7, q.photon ? 3 : 2);
+            line(v == 0 ? q.x : q.y, v == 0 ? q.tx : q.ty, reco, q.photon ? 1 : 7, q.photon ? 3 : 2,
+                 (q.last + 1) * p.layerThick / 10.0);   // reco segment: calo front to its last layer
         if (si)   // reconstructed charged tracks through the Si planes, up to the calo face
             for (const auto& t : calo::FindSiTracks(*si, p)) {
                 const double a = (v == 0 ? t.x : t.y) / 10.0, b = v == 0 ? t.tx : t.ty;
@@ -401,8 +402,10 @@ int main(int argc, char** argv)
         const auto tj = evTraj.find(evt);
         const bool haveTraj = tj != evTraj.end();
         if (nDisp < nDisplay && !ph.empty() && (trajPath.empty() || haveTraj)) {
+            static const std::vector<calo::TrackerHit> noHits;   // with --tracker, always draw the Si region
             const auto si = evTracker.find(evt);
-            Display(evt, E, ph, tr, haveTraj ? &tj->second : nullptr, si == evTracker.end() ? nullptr : &si->second, g, p, truthMin,
+            Display(evt, E, ph, tr, haveTraj ? &tj->second : nullptr,
+                    trackerPath.empty() ? nullptr : si == evTracker.end() ? &noHits : &si->second, g, p, truthMin,
                     dispDir + "/evt_" + std::to_string(evt));
             ++nDisp;
         }

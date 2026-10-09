@@ -29,9 +29,11 @@ source jobs/env.sh
     echo "missing output/calo_hits.root: rebuild the library with the crystal calo"
     echo "(02_library, then 03_merge) before 07_reco"; exit 1; }
 
-# Photon ID with the Si veto when the library has tracker hits (§2.14).
+# Si veto is opt-in (§2.14): with no Si timing yet, every charged track in the
+# window masks 2 R_M of calo, so at LESA (mu ~ 400) it kills ~85 % of photons.
+#   SIVETO=1 TAG=_siveto sbatch jobs/07_reco.sbatch
 TRACKER=""
-[[ -s output/tracker_hits.root ]] && TRACKER=output/tracker_hits.root
+[[ "${SIVETO:-0}" == 1 && -s output/tracker_hits.root ]] && TRACKER=output/tracker_hits.root
 
 MODES=(dark lesa xleap)
 MODE="${MODES[$SLURM_ARRAY_TASK_ID]}"

@@ -471,13 +471,13 @@ inline std::vector<SiTrack> FindSiTracks(std::vector<TrackerHit> hits, const Rec
 // centroid sat > 2 cm off. Calo backsplash lights mostly the last 2 planes, so
 // it does not make a track. Objects outside the 9.8 cm planes get
 // vetoInfo = false ("no information", not "neutral").
-inline void ApplyVeto(std::vector<Photon3D>& objs, const std::vector<TrackerHit>& hits, const RecoParams& p)
+inline void ApplyVeto(std::vector<Photon3D>& objs, const std::vector<SiTrack>& tracks, const RecoParams& p)
 {
     const double z0 = TrackerZ(0, p) - p.frontZ;
     for (auto& o : objs)
         o.vetoInfo = (std::abs(o.x) <= p.trackerHalf && std::abs(o.y) <= p.trackerHalf) ||
                      (std::abs(o.x + o.tx * z0) <= p.trackerHalf && std::abs(o.y + o.ty * z0) <= p.trackerHalf);
-    for (const auto& t : FindSiTracks(hits, p)) {
+    for (const auto& t : tracks) {
         Photon3D* near = nullptr;
         for (auto& o : objs) {
             const double d = std::hypot(o.x - t.x, o.y - t.y);
@@ -490,6 +490,10 @@ inline void ApplyVeto(std::vector<Photon3D>& objs, const std::vector<TrackerHit>
         near->vetoPlanes = t.n;
         near->siX = t.x; near->siY = t.y; near->siTx = t.tx; near->siTy = t.ty;
     }
+}
+inline void ApplyVeto(std::vector<Photon3D>& objs, const std::vector<TrackerHit>& hits, const RecoParams& p)
+{
+    ApplyVeto(objs, FindSiTracks(hits, p), p);
 }
 
 // Step 4. x/y pairing by depth and energy balance (min total cost).
