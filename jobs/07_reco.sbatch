@@ -21,6 +21,10 @@
 #
 # Reconstruction (Calo-Reco-Explained §2.13): depth-aware is the default.
 #   RECO=summed TAG=_summed     sbatch jobs/07_reco.sbatch   # old: layers summed, energy-rank x/y
+#
+# Fiducial margin (Edge-HadronID-ALP plan A4): photons and truth pairs need the shower core
+# >= FID mm from every calo side (default 10). Margin scan, dark + LESA:
+#   for m in 0 5 15; do FID=$m TAG=_fid$m sbatch --array=0,1 jobs/07_reco.sbatch; done
 
 set -euo pipefail
 source jobs/env.sh
@@ -49,5 +53,5 @@ MODE="${MODES[$SLURM_ARRAY_TASK_ID]}"
     --mass-MeV 10,20,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200 \
     --e-bins-GeV 1,2,3,4 \
     --n-trials "${N_TRIALS:-2000}" \
-    --reco "${RECO:-depth}" \
+    --reco "${RECO:-depth}" --fid-margin-mm "${FID:-10}" \
     --out-csv "output/reco_grid_${MODE}${TAG:-}.csv"
