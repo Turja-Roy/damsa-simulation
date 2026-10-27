@@ -9,10 +9,13 @@
 #SBATCH -e logs/templates_%j.err
 #
 # Single-particle templates for the photon ID (Calo-Reco-Explained §2.14):
-# gamma, e-, pi+, p, n at several energies, fired along the beam axis from just
-# upstream of the Si trackers (z = -99 mm, inside the magnet region), so the
-# Si veto and the calo see them as a beam particle would. Uses the standard
-# Geant4 /gun commands of the beam generator (one particle per event).
+# gamma, e-, pi+, p, n at several energies, fired from just upstream of the Si
+# trackers (z = -99 mm, inside the magnet region), so the Si veto and the calo
+# see them as a beam particle would. Uses the standard Geant4 /gun commands of
+# the beam generator (one particle per event). With SPREAD=1 (default) each event
+# aims at a point uniform over the CsI face (+-60 mm) with slopes uniform within
+# +-0.3, so the species probabilities see steep and edge showers as real photons
+# make them (Direction-Templates plan T1); SPREAD=0 = head-on along the axis.
 #   sbatch --dependency=afterok:<build_id> jobs/09_templates.sbatch
 #
 # Ends by writing output/pid_table.csv (species probabilities, Edge-HadronID-ALP
@@ -40,6 +43,10 @@ for p in "${PARTICLES[@]}"; do
             echo "/gun/energy $E MeV"
             echo "/gun/position 0 0 -99 mm"
             echo "/gun/direction 0 0 1"
+            if [[ "${SPREAD:-1}" == 1 ]]; then
+                echo "/damsa/setGunSpread 60 mm"
+                echo "/damsa/setGunMaxSlope 0.3"
+            fi
             echo "/run/beamOn $N"
         } > "$mac"
         ./build/damsa "$mac" > "logs/templates_${tag}.log" 2>&1

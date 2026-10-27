@@ -12,6 +12,7 @@
 // picks up the new values.
 
 #include "G4UImessenger.hh"
+#include "G4UIcmdWithADouble.hh"
 #include "G4UIcmdWithADoubleAndUnit.hh"
 #include "G4UIcmdWithAString.hh"
 #include "G4UIcmdWithABool.hh"
@@ -47,6 +48,8 @@ private:
     G4UIcmdWithABool*          fSetPulsedBeamCmd;
     G4UIcmdWithADoubleAndUnit* fSetReadoutGateCmd;
     G4UIcmdWithADoubleAndUnit* fSetBeamSpotSigmaCmd;
+    G4UIcmdWithADoubleAndUnit* fSetGunSpreadCmd;
+    G4UIcmdWithADouble*        fSetGunMaxSlopeCmd;
 };
 
 // ── Inline implementation ─────────────────────────────────────────────────────
@@ -62,7 +65,8 @@ inline DamsaDetectorMessenger::DamsaDetectorMessenger(DamsaDetectorConstruction*
   fSetOutputPrefixCmd(nullptr),
   fSetWriteCSVCmd(nullptr), fSetCaloHitEventLimitCmd(nullptr), fSetTrajEventLimitCmd(nullptr), fSetWriteNTupleCmd(nullptr),
   fSetBeamModeCmd(nullptr),
-  fSetPulsedBeamCmd(nullptr), fSetReadoutGateCmd(nullptr), fSetBeamSpotSigmaCmd(nullptr)
+  fSetPulsedBeamCmd(nullptr), fSetReadoutGateCmd(nullptr), fSetBeamSpotSigmaCmd(nullptr),
+  fSetGunSpreadCmd(nullptr), fSetGunMaxSlopeCmd(nullptr)
 {
     fDetDir = new G4UIdirectory("/damsa/");
     fDetDir->SetGuidance("DAMSA detector control commands.");
@@ -154,6 +158,21 @@ inline DamsaDetectorMessenger::DamsaDetectorMessenger(DamsaDetectorConstruction*
     fSetBeamSpotSigmaCmd->SetDefaultUnit("mm");
     fSetBeamSpotSigmaCmd->SetUnitCandidates("um mm cm");
     fSetBeamSpotSigmaCmd->AvailableForStates(G4State_PreInit, G4State_Idle);
+
+    fSetGunSpreadCmd = new G4UIcmdWithADoubleAndUnit("/damsa/setGunSpread", this);
+    fSetGunSpreadCmd->SetGuidance("Level A: aim each event at a point uniform within +-half on the CsI face");
+    fSetGunSpreadCmd->SetGuidance("(single-particle templates; 0 = off). The gun z stays as /gun/position sets it.");
+    fSetGunSpreadCmd->SetParameterName("Half", false);
+    fSetGunSpreadCmd->SetRange("Half>=0.");
+    fSetGunSpreadCmd->SetDefaultUnit("mm");
+    fSetGunSpreadCmd->SetUnitCandidates("mm cm");
+    fSetGunSpreadCmd->AvailableForStates(G4State_PreInit, G4State_Idle);
+
+    fSetGunMaxSlopeCmd = new G4UIcmdWithADouble("/damsa/setGunMaxSlope", this);
+    fSetGunMaxSlopeCmd->SetGuidance("Level A: slopes dx/dz, dy/dz uniform within +-s per event (0 = /gun/direction).");
+    fSetGunMaxSlopeCmd->SetParameterName("s", false);
+    fSetGunMaxSlopeCmd->SetRange("s>=0.");
+    fSetGunMaxSlopeCmd->AvailableForStates(G4State_PreInit, G4State_Idle);
 }
 
 inline DamsaDetectorMessenger::~DamsaDetectorMessenger()
@@ -170,6 +189,8 @@ inline DamsaDetectorMessenger::~DamsaDetectorMessenger()
     delete fSetPulsedBeamCmd;
     delete fSetReadoutGateCmd;
     delete fSetBeamSpotSigmaCmd;
+    delete fSetGunSpreadCmd;
+    delete fSetGunMaxSlopeCmd;
     delete fDetDir;
 }
 
@@ -221,6 +242,12 @@ inline void DamsaDetectorMessenger::SetNewValue(G4UIcommand* cmd, G4String val)
             fSetBeamSpotSigmaCmd->GetNewDoubleValue(val) / mm;
         G4cout << "[Config] Beam spot sigma set to: "
                << DamsaConfig::gBeamSpotSigma_mm << " mm" << G4endl;
+    } else if (cmd == fSetGunSpreadCmd) {
+        DamsaConfig::gGunSpreadXY_mm = fSetGunSpreadCmd->GetNewDoubleValue(val) / mm;
+        G4cout << "[Config] Gun spread on the CsI face: +-" << DamsaConfig::gGunSpreadXY_mm << " mm" << G4endl;
+    } else if (cmd == fSetGunMaxSlopeCmd) {
+        DamsaConfig::gGunMaxSlope = fSetGunMaxSlopeCmd->GetNewDoubleValue(val);
+        G4cout << "[Config] Gun max slope: +-" << DamsaConfig::gGunMaxSlope << G4endl;
     }
 }
 

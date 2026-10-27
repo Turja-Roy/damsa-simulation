@@ -109,6 +109,13 @@ inline double     gReadoutGate_s    = 1.0e-6;  // calo integration window [s]
                                                // paper; set from CsI design (plan §4)
 inline bool       gPoissonOccupancy = true;    // Poisson per-bunch occupancy vs fixed
 inline double     gBeamSpotSigma_mm = 0.0;     // transverse Gaussian beam spot (0 = pencil)
+// Level-A gun spread (single-particle templates, Direction-Templates plan T1): per
+// event, a point uniform within +-gGunSpreadXY_mm on the plane z = gGunAimZ_mm and
+// slopes uniform within +-gGunMaxSlope; the particle starts on that line at the
+// /gun/position z. Both 0 = off (the gun as set by /gun/ commands).
+inline double     gGunSpreadXY_mm = 0.0;
+inline double     gGunMaxSlope    = 0.0;
+inline double     gGunAimZ_mm     = 20.1;      // CsI front face, default geometry (RecoParams::frontZ)
 inline int        gMaxDirectElectrons = 10000; // guard: above this, use overlay (§3.3 Strat 2)
 
 // Total electrons actually fired this run (summed across MT worker threads).

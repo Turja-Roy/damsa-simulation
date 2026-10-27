@@ -61,6 +61,16 @@ void DamsaPrimaryGenerator::GeneratePrimaries(G4Event* anEvent) {
     // Level A: one electron per event.
     if (!DamsaConfig::gPulsedBeam) {
         DamsaConfig::gElectronsFired += 1;
+        if (DamsaConfig::gGunSpreadXY_mm > 0. || DamsaConfig::gGunMaxSlope > 0.) {
+            // Template spread: a face point and slopes per event, start on that line at the gun z.
+            const G4double h = DamsaConfig::gGunSpreadXY_mm * mm, s = DamsaConfig::gGunMaxSlope;
+            const G4double tx = s * (2. * G4UniformRand() - 1.), ty = s * (2. * G4UniformRand() - 1.);
+            const G4double z0 = fParticleGun->GetParticlePosition().z();
+            const G4double L = DamsaConfig::gGunAimZ_mm * mm - z0;
+            fParticleGun->SetParticlePosition(G4ThreeVector(h * (2. * G4UniformRand() - 1.) - tx * L,
+                                                            h * (2. * G4UniformRand() - 1.) - ty * L, z0));
+            fParticleGun->SetParticleMomentumDirection(G4ThreeVector(tx, ty, 1.).unit());
+        }
         fParticleGun->GeneratePrimaryVertex(anEvent);
         return;
     }
