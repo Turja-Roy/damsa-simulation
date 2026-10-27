@@ -10,8 +10,10 @@
 // profile features, class EM / MIP / hadronic, Si veto, photon flag, matched
 // truth and residuals), output/track_pairs_<tag>.csv (genuine truth pairs whose
 // two photons passed the photon ID: reco vertex vs truth) and event displays
-// plots/tracks/<tag>/evt_<id>.png (calorimeter top view; with --traj, the true
-// in-calo trajectories by species). Calo-Reco-Explained §2.13-2.14.
+// plots/tracks/<tag>/evt_<id>.png (top view from the target to the calo back:
+// truth from each creation vertex, with --traj the true in-calo trajectories by
+// species; reco lines extrapolated upstream and pair vertices). Calo-Reco-Explained
+// §2.13-2.14, Display-Upstream plan.
 // With --pid output/pid_table.csv (damsa_track_plots --pid-table), every object
 // also gets species probabilities P_gamma..P_n (Edge-HadronID-ALP plan B3),
 // shown next to it in the displays as its two most likely species.
@@ -30,6 +32,7 @@
 #include <TPolyLine.h>
 #include <TStyle.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -42,7 +45,7 @@ namespace io = damsa::io;
 
 namespace {
 
-struct Truth { double E, x, y, tx, ty, vx, vy, vz; int pdg, parent; };
+struct Truth { double E, x, y, tx, ty, vx, vy, vz; int pdg, parent, proc; };
 
 int Match(const std::vector<Truth>& tr, double x, double y, double R, int mode)
 {
@@ -76,25 +79,46 @@ const char* kGamma = "#2a78d6";
 const char* kElec = "#1baf7a";
 const char* kHad = "#4a3aa7";
 
-// Calorimeter top view: depth along x (layer 1 at the front, 1 cm per layer),
-// transverse position along y, both in cm, with a grid line at every crystal
-// edge. Top panel = x view (odd layers), bottom = y view (even layers), so in
-// each panel the other view's layers are empty columns. Truth: the real
-// trajectories inside the CsI when available (--traj), else straight photon
-// lines from the calo face.
+// Event display, top view: depth along x from the target front to the calo back
+// (0 = calo front, layer n spans n-1 to n), transverse position along y, both in
+// cm and to scale, with a grid line at every crystal edge. Top panel = x view
+// (odd layers), bottom = y view (even layers), so in each panel the other view's
+// layers are empty columns. Upstream of the calo (Display-Upstream plan):
+//   truth   -- every face particle (>= 1 MeV, 1-3 per event) as a straight line from its creation
+//              vertex (the magnet is off), a marker per vertex, and a label where a
+//              vertex sends >= 2 of them (the decay or process);
+//   reco    -- photon-ID lines extrapolated back to the target, and a star with
+//              m_gg [MeV] where each pair of fiducial photons comes closest.
+// The transverse axis is the calo face (+-6 cm): the VDC wall (r = 10 cm) is
+// off-panel, and points outside the band are clamped and drawn open.
+// Inside the CsI, truth = the real trajectories when available (--traj), else
+// straight photon lines from the calo face.
 using Prob = std::array<double, calo::kNPid>;
+
+// construction.cpp defaults (as damsa_eventview): W target, then the VDC up to the magnet.
+constexpr double kTargetZ0 = -500, kTargetLen = 100, kCapThick = 5;   // mm, world
+
+// Label of a primary vertex: injected samples fire the decay photons as primaries,
+// so the parent comes from the sample tag.
+std::string PrimaryLabel(const std::string& tag)
+{
+    if (tag.rfind("pi0", 0) == 0) return "#pi^{0}#rightarrow#gamma#gamma";
+    if (tag.rfind("eta", 0) == 0) return "#eta#rightarrow#gamma#gamma";
+    if (tag.rfind("alp_ma", 0) == 0) return "a#rightarrow#gamma#gamma (" + tag.substr(6) + " MeV)";
+    return "primary";
+}
 
 void Display(int evt, const std::vector<double>& E, const std::vector<calo::Photon3D>& ph,
              const std::vector<Prob>& P, const std::vector<Truth>& tr, const std::vector<io::CaloTrajRow>* traj,
-             const std::vector<calo::TrackerHit>* si, const calo::Geometry& g, const calo::RecoParams& p, double truthMin, const std::string& path)
+             const std::vector<calo::TrackerHit>* si, const calo::Geometry& g, const calo::RecoParams& p, double truthMin,
+             const std::string& primLabel, const std::string& path)
 {
     const int nLayers = static_cast<int>(E.size()) / g.nPerLayer;
     const double depth = nLayers * p.layerThick / 10.0, h = g.caloXY_mm / 20.0;   // cm
-    // Depth < 0: the magnet region with the Si planes (one empty bin), drawn when
-    // tracker hits are given.
-    const double dLo = si ? 2 * std::floor((p.magnetZ0 - p.frontZ) / 20.0) : 0.0;   // even, so ticks fall on 2 cm
-    std::vector<double> xb;
-    if (si) xb.push_back(dLo);
+    auto D = [&](double z_mm) { return (z_mm - p.frontZ) / 10.0; };              // world z -> depth [cm]
+    const double dT0 = D(kTargetZ0), dT1 = D(kTargetZ0 + kTargetLen), dM = D(p.magnetZ0);
+    const double dLo = -4 * std::ceil(-dT0 / 4);   // a whole 4 cm tick before the target
+    std::vector<double> xb{dLo};
     for (int l = 0; l <= nLayers; ++l) xb.push_back(l * p.layerThick / 10.0);
     TH2D hx(Form("hx%d", evt), "", static_cast<int>(xb.size()) - 1, xb.data(), g.nPerLayer, -h, h);
     TH2D hy(Form("hy%d", evt), "", static_cast<int>(xb.size()) - 1, xb.data(), g.nPerLayer, -h, h);
@@ -104,12 +128,14 @@ void Display(int evt, const std::vector<double>& E, const std::vector<calo::Phot
         (l % 2 ? hx : hy).Fill((l + 0.5) * p.layerThick / 10.0, g.stripPos(s) / 10.0, E[c]);
     }
     gStyle->SetTitleAlign(13);   // titles top-left: the legend sits top-right
-    gStyle->SetTitleX(0.07);
-    TCanvas c(Form("ev%d", evt), "", 1400, 900);
+    gStyle->SetTitleX(0.04);
+    // Width from the depth span, so 1 cm is as long on both axes (1400 px held 56 cm).
+    TCanvas c(Form("ev%d", evt), "", static_cast<int>(std::lround(25 * (depth - dLo))), 900);
     c.Divide(1, 2, 0.002, 0.002);
     const int reco = TColor::GetColor(kReco), cg = TColor::GetColor(kGamma),
               ce = TColor::GetColor(kElec), ch = TColor::GetColor(kHad);
-    const int gridCol = TColor::GetColor("#c9c8c1");
+    const int gridCol = TColor::GetColor("#c9c8c1"), steel = TColor::GetColor("#a8a79f"),
+              ink = TColor::GetColor("#3d3d3a");
     std::vector<TObject*> keep;
     TH2D* hs[2] = {&hx, &hy};
     const char* lab[2] = {"x [cm]", "y [cm]"};
@@ -120,22 +146,67 @@ void Display(int evt, const std::vector<double>& E, const std::vector<calo::Phot
     // Truth trajectories grouped per track, in step order.
     std::map<int, std::vector<const io::CaloTrajRow*>> perTrack;
     if (traj) for (const auto& r : *traj) perTrack[r.trackID].push_back(&r);
+    auto styleTruth = [&](TAttLine* l, int pdg) {
+        const int apdg = std::abs(pdg);
+        if (pdg == 22)        { l->SetLineColor(cg); l->SetLineWidth(2); l->SetLineStyle(2); }
+        else if (apdg == 11)  { l->SetLineColor(ce); l->SetLineWidth(1); l->SetLineStyle(1); }
+        else if (apdg == 2112 || apdg == 130 || apdg == 310 || apdg == 111) {
+            l->SetLineColor(ch); l->SetLineWidth(2); l->SetLineStyle(3);   // neutral hadron
+        } else                { l->SetLineColor(ch); l->SetLineWidth(3); l->SetLineStyle(1); }   // mu, pi, p, ...
+    };
+    // Truth vertices: particles sharing parent and vertex (a decay, a conversion pair).
+    struct Vtx { double x, y, z; int n, proc; };
+    std::vector<Vtx> vtx;
+    for (const auto& t : tr) {
+        auto it = std::find_if(vtx.begin(), vtx.end(), [&](const Vtx& w) {
+            return std::abs(w.x - t.vx) < 1e-3 && std::abs(w.y - t.vy) < 1e-3 && std::abs(w.z - t.vz) < 1e-3; });
+        if (it == vtx.end()) vtx.push_back({t.vx, t.vy, t.vz, 1, t.proc}); else ++it->n;
+    }
+    auto procLabel = [&](int proc) -> std::string {
+        switch (proc) {
+            case io::Proc::Primary: return primLabel;
+            case io::Proc::eBrem:   return "brems";
+            case io::Proc::Decay:   return "decay";
+            case io::Proc::Conv:    return "conv";
+            case io::Proc::Compt:   return "Compton";
+            case io::Proc::Annihil: return "annihil";
+            default:                return "other";
+        }
+    };
 
     for (int v = 0; v < 2; ++v) {
         c.cd(v + 1);
-        gPad->SetRightMargin(0.12); gPad->SetLeftMargin(0.07); gPad->SetTopMargin(si && v == 0 ? 0.135 : 0.10);
+        gPad->SetRightMargin(0.07); gPad->SetLeftMargin(0.04); gPad->SetTopMargin(0.135);
         gPad->SetBottomMargin(0.14); gPad->SetLogz();
-        hs[v]->SetTitle(Form("event %d -- %s;depth from the calo front [cm]  (layer n spans n-1 to n%s);%s;bar energy [MeV]",
-                             evt, view[v], si ? ", Si planes at < 0" : "", lab[v]));
+        hs[v]->SetTitle(Form("event %d -- %s;depth from the calo front [cm]  (CsI layer n spans n-1 to n);%s;bar energy [MeV]",
+                             evt, view[v], lab[v]));
         hs[v]->SetMinimum(0.05);
         hs[v]->SetMaximum(emax);   // same colour scale in both panels
-        hs[v]->GetXaxis()->SetNdivisions(static_cast<int>(std::lround((depth - dLo) / 2)), false);
+        hs[v]->GetXaxis()->SetNdivisions(static_cast<int>(std::lround((depth - dLo) / 4)), false);
         hs[v]->GetYaxis()->SetNdivisions(g.nPerLayer, false);
         hs[v]->GetXaxis()->SetTitleOffset(1.1);
-        hs[v]->GetYaxis()->SetTitleOffset(0.6);
+        hs[v]->GetYaxis()->SetTitleOffset(0.35);
+        hs[v]->GetYaxis()->SetTickLength(0.006); hs[v]->GetZaxis()->SetTickLength(0.006);   // fractions of the wide pad
         hs[v]->GetXaxis()->SetTitleSize(0.05); hs[v]->GetYaxis()->SetTitleSize(0.05);
-        hs[v]->GetZaxis()->SetTitleSize(0.05); hs[v]->GetZaxis()->SetTitleOffset(0.75);
+        hs[v]->GetZaxis()->SetTitleSize(0.05); hs[v]->GetZaxis()->SetTitleOffset(0.45);
         hs[v]->Draw("COLZ");
+        // Upstream geometry: W target, VDC end caps, region names.
+        auto box = [&](double d0, double d1, int col) {
+            auto* B = new TBox(d0, -h, d1, h);
+            B->SetFillColor(col); B->Draw(); keep.push_back(B);
+        };
+        box(dT0, dT1, TColor::GetColor("#e4e3dd"));
+        box(dT1, dT1 + kCapThick / 10.0, steel);
+        box(dM - kCapThick / 10.0, dM, steel);
+        if (v == 0) {   // the CsI needs no name: its grid shows it, and a label there sits on showers
+            const std::pair<double, const char*> region[] = {
+                {dT0, "W target"}, {dT1, "VDC (vacuum)"}, {dM, si ? "magnet, Si" : "magnet"}};
+            for (const auto& [d, name] : region) {
+                auto* T = new TLatex(d + 0.4, 0.86 * h, name);
+                T->SetTextSize(0.04); T->SetTextColor(ink); T->SetTextAlign(13);
+                T->Draw(); keep.push_back(T);
+            }
+        }
         for (int l = 0; l <= nLayers; ++l) {
             auto* L = new TLine(l * p.layerThick / 10.0, -h, l * p.layerThick / 10.0, h);
             L->SetLineColor(gridCol); L->SetLineWidth(1); L->Draw(); keep.push_back(L);
@@ -148,53 +219,90 @@ void Display(int evt, const std::vector<double>& E, const std::vector<calo::Phot
         // Si planes (grey bars, true thickness and extent) and their hits.
         if (si) {
             for (int i = 0; i < p.nTrackers; ++i) {
-                const double d = (calo::TrackerZ(i, p) - p.frontZ) / 10.0, w = p.trackerThick / 20.0;
+                const double d = D(calo::TrackerZ(i, p)), w = p.trackerThick / 20.0;
                 auto* B = new TBox(d - w, -p.trackerHalf / 10.0, d + w, p.trackerHalf / 10.0);
-                B->SetFillColor(TColor::GetColor("#a8a79f")); B->Draw(); keep.push_back(B);
+                B->SetFillColor(steel); B->Draw(); keep.push_back(B);
             }
             for (const auto& t : *si) {
-                auto* M = new TMarker((calo::TrackerZ(t.plane, p) - p.frontZ) / 10.0, std::clamp((v == 0 ? t.x : t.y) / 10.0, -h, h), 20);
+                auto* M = new TMarker(D(calo::TrackerZ(t.plane, p)), std::clamp((v == 0 ? t.x : t.y) / 10.0, -h, h), 20);
                 M->SetMarkerColor(kBlack); M->SetMarkerSize(1.0); M->Draw(); keep.push_back(M);
             }
         }
-        // Truth.
+        // A straight segment, clipped to the transverse band |u| <= h.
+        auto seg = [&](double d0, double u0, double d1, double u1, int col, int style, int width) -> TLine* {
+            double a = 0, b = 1;
+            const double du = u1 - u0;
+            if (std::abs(du) < 1e-12) { if (std::abs(u0) > h) return nullptr; }
+            else {
+                double t0 = (-h - u0) / du, t1 = (h - u0) / du;
+                if (t0 > t1) std::swap(t0, t1);
+                a = std::max(a, t0); b = std::min(b, t1);
+                if (a >= b) return nullptr;
+            }
+            auto* L = new TLine(d0 + a * (d1 - d0), u0 + a * du, d0 + b * (d1 - d0), u0 + b * du);
+            L->SetLineColor(col); L->SetLineWidth(width); L->SetLineStyle(style);
+            L->Draw(); keep.push_back(L);
+            return L;
+        };
+        // A marker, open when clamped into the panel.
+        auto mark = [&](double d, double u, int style, int openStyle, int col, double size) {
+            const double dc = std::clamp(d, dLo, depth), uc = std::clamp(u, -h, h);
+            auto* M = new TMarker(dc, uc, dc == d && uc == u ? style : openStyle);
+            M->SetMarkerColor(col); M->SetMarkerSize(size); M->Draw(); keep.push_back(M);
+            return std::pair<double, double>{dc, uc};
+        };
+        // Truth: in the CsI, then upstream from each creation vertex to the calo face.
         if (traj) {
             for (const auto& [tid, pts] : perTrack) {
                 if (pts.size() < 2) continue;
                 auto* pl = new TPolyLine(static_cast<int>(pts.size()));
                 for (std::size_t k = 0; k < pts.size(); ++k) {
-                    const double d = std::clamp((pts[k]->z_mm - p.frontZ) / 10.0, dLo, depth);
+                    const double d = std::clamp(D(pts[k]->z_mm), dLo, depth);
                     const double u = std::clamp((v == 0 ? pts[k]->x_mm : pts[k]->y_mm) / 10.0, -h, h);
                     pl->SetPoint(static_cast<int>(k), d, u);
                 }
-                const int pdg = pts[0]->pdg, apdg = std::abs(pdg);
-                if (pdg == 22)        { pl->SetLineColor(cg); pl->SetLineWidth(2); pl->SetLineStyle(2); }
-                else if (apdg == 11)  { pl->SetLineColor(ce); pl->SetLineWidth(1); }
-                else if (apdg == 2112 || apdg == 130 || apdg == 310 || apdg == 111) {
-                    pl->SetLineColor(ch); pl->SetLineWidth(2); pl->SetLineStyle(3);   // neutral hadron
-                } else                { pl->SetLineColor(ch); pl->SetLineWidth(3); }   // mu, pi, p, ...
+                styleTruth(pl, pts[0]->pdg);
                 pl->Draw(); keep.push_back(pl);
             }
         }
-        // Straight segments: reco objects, and truth photons when no trajectories.
+        for (const auto& t : tr)
+            if (t.vz < p.frontZ)
+                if (auto* L = seg(std::max(D(t.vz), dLo), (v == 0 ? t.vx : t.vy) / 10.0, 0, (v == 0 ? t.x : t.y) / 10.0, 1, 1, 1))
+                    styleTruth(L, t.pdg);
+        for (const auto& w : vtx) {
+            const auto [d, u] = mark(D(w.z), (v == 0 ? w.x : w.y) / 10.0, 33, 27, ink, 1.6);
+            if (w.n < 2) continue;
+            auto* T = new TLatex(d + 0.4, u + (u > 0 ? -0.35 : 0.35), procLabel(w.proc).c_str());
+            T->SetTextSize(0.04); T->SetTextColor(ink); T->SetTextAlign(u > 0 ? 13 : 11);
+            T->Draw(); keep.push_back(T);
+        }
+        // Straight segments: reco objects, and truth photons in the CsI when no trajectories.
         auto line = [&](double a_mm, double slope, int col, int style, int width, double dEnd) {
-            double d1 = dEnd, u0 = a_mm / 10.0, u1 = u0 + slope * dEnd;
-            if (std::abs(u1) > h) {   // leaves through the side: stop at the edge
-                const double edge = u1 > 0 ? h : -h;
-                if (std::abs(slope) > 1e-12) d1 = (edge - u0) / slope;
-                u1 = edge;
-            }
-            if (d1 <= 0 || std::abs(u0) > h) return;
-            auto* L = new TLine(0, u0, d1, u1);
-            L->SetLineColor(col); L->SetLineWidth(width); L->SetLineStyle(style);
-            L->Draw(); keep.push_back(L);
+            seg(0, a_mm / 10.0, dEnd, a_mm / 10.0 + slope * dEnd, col, style, width);
         };
         if (!traj)
             for (const auto& t : tr)
                 if (t.pdg == 22 && t.E >= truthMin) line(v == 0 ? t.x : t.y, v == 0 ? t.tx : t.ty, cg, 2, 2, depth);
-        for (const auto& q : ph)
-            line(v == 0 ? q.x : q.y, v == 0 ? q.tx : q.ty, reco, q.photon ? 1 : 7, q.photon ? 3 : 2,
+        for (const auto& q : ph) {
+            const double a = (v == 0 ? q.x : q.y) / 10.0, b = v == 0 ? q.tx : q.ty;
+            line(a * 10, b, reco, q.photon ? 1 : 7, q.photon ? 3 : 2,
                  (q.last + 1) * p.layerThick / 10.0);   // reco segment: calo front to its last layer
+            if (q.photon) seg(dT0, a + b * dT0, 0, a, reco, 2, 2);   // extrapolated back to the target
+        }
+        // Reco pair vertices: closest approach of each pair of fiducial photons, with m_gg.
+        // It is a 3D point: in a view where the two lines are nearly parallel, the star
+        // need not sit on their crossing.
+        for (std::size_t i = 0; i < ph.size(); ++i)
+            for (std::size_t j = i + 1; j < ph.size(); ++j) {
+                const auto &a = ph[i], &b = ph[j];
+                if (!a.photon || !b.photon || !a.fiducial || !b.fiducial) continue;
+                const auto w = calo::ClosestApproach(a.x, a.y, a.tx, a.ty, b.x, b.y, b.tx, b.ty, p.frontZ);
+                const auto [d, u] = mark(D(w.z), (v == 0 ? w.x : w.y) / 10.0, 29, 30, reco, 2.2);
+                auto* T = new TLatex(d + 0.4, u + (u > 0 ? -0.35 : 0.35),
+                                     Form("%.0f", Mass(a.E, a.tx, a.ty, b.E, b.tx, b.ty)));
+                T->SetTextSize(0.04); T->SetTextColor(reco); T->SetTextAlign(u > 0 ? 13 : 11);
+                T->Draw(); keep.push_back(T);
+            }
         // Species candidates: the two most probable, at the object's last layer.
         static const char* tex[calo::kNPid] = {"#gamma", "e", "#pi", "p", "n"};
         for (std::size_t k = 0; k < P.size(); ++k) {
@@ -211,36 +319,37 @@ void Display(int evt, const std::vector<double>& E, const std::vector<calo::Phot
         if (si)   // reconstructed charged tracks through the Si planes, up to the calo face
             for (const auto& t : calo::FindSiTracks(*si, p)) {
                 const double a = (v == 0 ? t.x : t.y) / 10.0, b = v == 0 ? t.tx : t.ty;
-                const double d0 = (calo::TrackerZ(0, p) - p.frontZ) / 10.0;
+                const double d0 = D(calo::TrackerZ(0, p));
                 auto* L = new TLine(d0, std::clamp(a + b * d0, -h, h), 0, std::clamp(a, -h, h));
                 L->SetLineColor(reco); L->SetLineWidth(3); L->SetLineStyle(10);
                 L->Draw(); keep.push_back(L);
             }
     }
     c.cd(1);
-    TLegend leg(0.30, si ? 0.87 : 0.905, 0.88, 0.998);
-    leg.SetBorderSize(0); leg.SetFillStyle(0); leg.SetTextSize(0.040); leg.SetNColumns(3);
-    TLine lr, lj, lg, le, lh, ln, lc;
-    TMarker ms(0, 0, 20);
+    TLegend leg(0.30, 0.87, 0.93, 0.998);
+    leg.SetBorderSize(0); leg.SetFillStyle(0); leg.SetTextSize(0.040); leg.SetNColumns(5);
+    TLine lr, lj, lx, lg, le, lh, ln, lc;
+    TMarker ms(0, 0, 20), mv(0, 0, 29), mt(0, 0, 33);
     lc.SetLineColor(reco); lc.SetLineWidth(3); lc.SetLineStyle(10);
     lr.SetLineColor(reco); lr.SetLineWidth(3);
     lj.SetLineColor(reco); lj.SetLineWidth(2); lj.SetLineStyle(7);
-    lg.SetLineColor(cg); lg.SetLineWidth(2); lg.SetLineStyle(2);
-    le.SetLineColor(ce); le.SetLineWidth(1);
-    lh.SetLineColor(ch); lh.SetLineWidth(3);
-    ln.SetLineColor(ch); ln.SetLineWidth(2); ln.SetLineStyle(3);
+    lx.SetLineColor(reco); lx.SetLineWidth(2); lx.SetLineStyle(2);
+    mv.SetMarkerColor(reco); mv.SetMarkerSize(2.2);
+    mt.SetMarkerColor(ink); mt.SetMarkerSize(1.6);
+    styleTruth(&lg, 22); styleTruth(&le, 11); styleTruth(&lh, 211); styleTruth(&ln, 2112);
     leg.AddEntry(&lr, "reco photon", "l");
+    leg.AddEntry(&lx, "reco photon, extrapolated", "l");
+    leg.AddEntry(&mv, "reco pair vertex, m_{#gamma#gamma} [MeV]", "p");
     leg.AddEntry(&lj, "reco rejected (MIP/hadr./charged)", "l");
     if (si) {
         leg.AddEntry(&lc, "reco Si track (charged)", "l");
         leg.AddEntry(&ms, "Si hit", "p");
     }
-    leg.AddEntry(&lg, traj ? "true #gamma" : Form("true #gamma #geq %.0f MeV", truthMin), "l");
-    if (traj) {
-        leg.AddEntry(&le, "true e^{#pm}", "l");
-        leg.AddEntry(&lh, "true #mu/#pi/p", "l");
-        leg.AddEntry(&ln, "true n (neutral)", "l");
-    }
+    leg.AddEntry(&mt, "true vertex", "p");
+    leg.AddEntry(&lg, traj ? "true #gamma" : Form("true #gamma (in the CsI: #geq %.0f MeV)", truthMin), "l");
+    leg.AddEntry(&le, "true e^{#pm}", "l");
+    leg.AddEntry(&lh, "true #mu/#pi/p", "l");
+    leg.AddEntry(&ln, "true n (neutral)", "l");
     leg.Draw();
     c.SaveAs((path + ".png").c_str());
     for (auto* o : keep) delete o;
@@ -318,7 +427,7 @@ int main(int argc, char** argv)
         if (r.pz <= 0 || r.energy_MeV < 1 || a == 12 || a == 14 || a == 16) continue;
         if (r.parentID < 0) { std::fprintf(stderr, "Error: %s has no truth columns.\n", truthPath.c_str()); return 1; }
         evTruth[r.eventID].push_back({r.energy_MeV, r.x_mm, r.y_mm, r.px / r.pz, r.py / r.pz,
-                                      r.vx_mm, r.vy_mm, r.vz_mm, r.pdg, r.parentID});
+                                      r.vx_mm, r.vy_mm, r.vz_mm, r.pdg, r.parentID, r.proc});
     }
     std::map<int, std::vector<calo::TrackerHit>> evTracker;
     if (!trackerPath.empty())
@@ -434,7 +543,7 @@ int main(int argc, char** argv)
             const auto si = evTracker.find(evt);
             Display(evt, E, ph, P, tr, haveTraj ? &tj->second : nullptr,
                     trackerPath.empty() ? nullptr : si == evTracker.end() ? &noHits : &si->second, g, p, truthMin,
-                    dispDir + "/evt_" + std::to_string(evt));
+                    PrimaryLabel(tag), dispDir + "/evt_" + std::to_string(evt));
             ++nDisp;
         }
     }
