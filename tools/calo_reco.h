@@ -12,7 +12,11 @@
 #include <algorithm>
 #include <cmath>
 #include <array>
+#include <fstream>
 #include <numeric>
+#include <sstream>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace calo {
@@ -176,6 +180,15 @@ struct RecoParams {
                                   // extrapolation are that particle or its spray, not photons
     int    minVetoPlanes = 4;     // a charged particle from upstream crosses all 6 planes; calo
                                   // backsplash hits mostly the last 2-3 (measured on 1 GeV photons)
+
+    // Edges (Edge-HadronID-ALP plan A1, A3-A4). Lateral leak of a shower whose core
+    // (axis at the shower-max layer) is d from a calo side: E / E_central = 1 - leakA exp(-d / leakLambda),
+    // fitted on the pi0/eta guns for d >= 5 mm. The correction is capped at 1/leakMinKeep
+    // (d < ~9 mm), where the measured spread is too large to correct.
+    double leakA = 1.8, leakLambda = 6.75;   // calibration knobs
+    double leakMinKeep = 0.5;
+    double fidMargin = 10;        // mm: fiducial = core >= this far from both sides (one bar; within
+                                  // it the outermost bar holds the whole axis, so no direction)
 };
 
 struct LayerCluster { int layer; double u, E, t; int nb; double rms; };   // nb: bars lit, rms: lateral [mm]
@@ -212,6 +225,9 @@ struct Photon3D {                    // a reconstructed calo object (photon cand
     double siX = 0, siY = 0, siTx = 0, siTy = 0;   // charged: its Si track line (at the face)
     bool vetoInfo = false;           // inside the tracker acceptance (entry or line at the first plane)
     bool photon = false;             // EM and not vetoed as charged
+    double xCore = 0, yCore = 0;     // axis at the shower-max layer
+    double edgeX = 0, edgeY = 0;     // core distance to the nearest calo side, per view [mm]
+    bool fiducial = false;           // both edge distances >= fidMargin
 };
 
 inline double LayerZ(int layer, const RecoParams& p) { return p.frontZ + p.layerThick * (layer + 0.5); }
@@ -238,7 +254,15 @@ LayerClusters(const std::vector<double>& E, const std::vector<double>& T, const 
                 var += real[s].E * (g.stripPos(s) - c.pos) * (g.stripPos(s) - c.pos);
             }
             if (e <= 0) continue;
-            out[l % 2].push_back({l, c.pos, e, et / e, nb, std::sqrt(var / e)});
+            // Centroid over bars symmetric about the peak, cut at the calo side: near an
+            // edge the halo beyond the side is lost, so the matching inner halo is left out
+            // too, or the centroid is pulled inward (Edge-HadronID-ALP plan A1-A2).
+            int pk = c.lo;
+            for (int s = c.lo; s <= c.hi; ++s) if (real[s].E > real[pk].E) pk = s;
+            const int k = std::min(pk, n - 1 - pk);
+            double w = 0, wu = 0;
+            for (int s = std::max(c.lo, pk - k); s <= std::min(c.hi, pk + k); ++s) { w += real[s].E; wu += real[s].E * g.stripPos(s); }
+            out[l % 2].push_back({l, wu / w, e, et / e, nb, std::sqrt(var / e)});
         }
     }
     return out;
@@ -500,7 +524,8 @@ inline void ApplyVeto(std::vector<Photon3D>& objs, const std::vector<TrackerHit>
 // ponytail: brute force over permutations up to 7 tracks per view, greedy above.
 inline std::vector<Photon3D> MatchViews(const std::vector<Track2D>& xs, const std::vector<Track2D>& ys,
                                         const std::vector<LayerCluster>& xcl,
-                                        const std::vector<LayerCluster>& ycl, const RecoParams& p)
+                                        const std::vector<LayerCluster>& ycl, const Geometry& g,
+                                        const RecoParams& p)
 {
     auto cost = [&](const Track2D& x, const Track2D& y) {
         const double startGap = std::abs(x.first - y.first);
@@ -566,6 +591,13 @@ inline std::vector<Photon3D> MatchViews(const std::vector<Track2D>& xs, const st
         double emax = -1;
         for (int i : x.idx) if (xcl[i].E > emax) { emax = xcl[i].E; ph.tmaxLayer = xcl[i].layer; }
         for (int i : y.idx) if (ycl[i].E > emax) { emax = ycl[i].E; ph.tmaxLayer = ycl[i].layer; }
+        // Core and edge distance; undo the lateral leak before anything uses E.
+        const double zc = LayerZ(ph.tmaxLayer, p);
+        ph.xCore = x.a + x.b * zc; ph.yCore = y.a + y.b * zc;
+        ph.edgeX = g.caloXY_mm / 2 - std::abs(ph.xCore); ph.edgeY = g.caloXY_mm / 2 - std::abs(ph.yCore);
+        auto kept = [&](double d) { return std::max(p.leakMinKeep, 1 - p.leakA * std::exp(-d / p.leakLambda)); };
+        ph.E /= kept(ph.edgeX) * kept(ph.edgeY);
+        ph.fiducial = std::min(ph.edgeX, ph.edgeY) >= p.fidMargin;
         // From the shower start (the conversion point), not the calo front.
         const double tMeas = (ph.tmaxLayer - ph.start + 0.5) * p.layerThick / p.X0;
         const double tExp = std::max(0.0, std::log(ph.E / p.critE) - 0.5);
@@ -608,12 +640,147 @@ inline std::vector<Photon3D> ReconstructDepth(const std::vector<double>& E, cons
 {
     const auto cl = LayerClusters(E, T, g, p);
     const auto ys = FindTracks(cl[0], g, p), xs = FindTracks(cl[1], g, p);
-    auto objs = MatchViews(xs, ys, cl[1], cl[0], p);
+    auto objs = MatchViews(xs, ys, cl[1], cl[0], g, p);
     for (auto& o : objs)
         for (const auto& b : objs)
             if (&b != &o && o.photon && o.E < p.satEfrac * b.E && o.start >= b.start + p.satStartGap &&
                 std::hypot(o.x - b.x, o.y - b.y) < p.satRadius) o.photon = false;
     return objs;
+}
+
+// ══ Species probabilities: naive Bayes (Edge-HadronID-ALP plan B2-B3) ════════
+//
+// Per reco-energy bin, one 1D likelihood table per feature and class, trained
+// on single-particle templates labelled by the gun species ("made by a particle
+// of species X"; K0_L counts as n). Posterior = prior x product of likelihoods.
+// A feature that is NaN (charged without Si information) is skipped.
+// ponytail: naive Bayes ignores feature correlations, so it can be overconfident;
+// upgrade to a TMVA multiclass BDT if the calibration plot (--pid-eval) fails.
+
+enum PidClass { kPGamma = 0, kPE, kPPi, kPP, kPN, kNPid };
+inline const char* const kPidName[kNPid] = {"gamma", "e", "pi", "p", "n"};
+constexpr int kNPidFeat = 11;
+inline const char* const kPidFeat[kNPidFeat] = {"start", "nLit", "tmaxPull", "medLayerE", "layerEcv", "peakRatio",
+                                                "meanBars", "widthEarly", "widthLate", "balance", "charged"};
+constexpr int kNPidE = 5;
+inline const double kPidE[kNPidE] = {5, 60, 150, 400, 1000};   // reco-E bin lower edges [MeV]
+using PidX = std::array<double, kNPidFeat>;
+
+inline PidX PidFeatures(const Photon3D& o)
+{
+    return {double(o.start), double(o.nLit), o.tmaxPull, o.medLayerE, o.layerEcv, o.peakRatio,
+            o.meanBars, o.widthEarly, o.widthLate, o.balance, o.vetoInfo ? double(o.charged) : std::nan("")};
+}
+
+inline int PidEBin(double E)
+{
+    int b = 0;
+    while (b + 1 < kNPidE && E >= kPidE[b + 1]) ++b;
+    return b;
+}
+
+struct PidTable {
+    static constexpr int nBins = 20;
+    std::array<double, kNPidFeat> lo{}, hi{};
+    std::vector<double> lik = std::vector<double>(kNPidFeat * kNPidE * nBins * kNPid, 1.0 / nBins);
+    std::array<std::array<double, kNPid>, kNPidE> prior{};   // set by BuildPid to flat
+
+    int Bin(int f, double v) const
+    {
+        return std::clamp(static_cast<int>(std::floor((v - lo[f]) / (hi[f] - lo[f]) * nBins)), 0, nBins - 1);
+    }
+    double& L(int f, int e, int b, int c) { return lik[((f * kNPidE + e) * nBins + b) * kNPid + c]; }
+    double L(int f, int e, int b, int c) const { return lik[((f * kNPidE + e) * nBins + b) * kNPid + c]; }
+};
+
+// Feature ranges: 0.5-99.5 % of all rows; per (E bin, class) histograms + 0.5 per bin, normalised.
+inline PidTable BuildPid(const std::vector<PidX>& x, const std::vector<double>& E, const std::vector<int>& cls)
+{
+    PidTable t;
+    for (auto& pr : t.prior) pr.fill(1.0 / int(kNPid));
+    for (int f = 0; f < kNPidFeat; ++f) {
+        std::vector<double> v;
+        for (const auto& r : x) if (!std::isnan(r[f])) v.push_back(r[f]);
+        std::sort(v.begin(), v.end());
+        t.lo[f] = v.empty() ? 0 : v[static_cast<std::size_t>(0.005 * (v.size() - 1))];
+        t.hi[f] = v.empty() ? 1 : v[static_cast<std::size_t>(0.995 * (v.size() - 1))];
+        if (t.hi[f] <= t.lo[f]) t.hi[f] = t.lo[f] + 1;
+        std::vector<double> h(kNPidE * PidTable::nBins * kNPid, 0.5);
+        for (std::size_t i = 0; i < x.size(); ++i)
+            if (!std::isnan(x[i][f])) h[(PidEBin(E[i]) * PidTable::nBins + t.Bin(f, x[i][f])) * kNPid + cls[i]] += 1;
+        for (int e = 0; e < kNPidE; ++e)
+            for (int c = 0; c < kNPid; ++c) {
+                double sum = 0;
+                for (int b = 0; b < PidTable::nBins; ++b) sum += h[(e * PidTable::nBins + b) * kNPid + c];
+                for (int b = 0; b < PidTable::nBins; ++b) t.L(f, e, b, c) = h[(e * PidTable::nBins + b) * kNPid + c] / sum;
+            }
+    }
+    return t;
+}
+
+inline std::array<double, kNPid> PidProb(const PidX& x, double E, const PidTable& t)
+{
+    const int e = PidEBin(E);
+    std::array<double, kNPid> lp;
+    for (int c = 0; c < kNPid; ++c) lp[c] = std::log(t.prior[e][c]);
+    for (int f = 0; f < kNPidFeat; ++f) {
+        if (std::isnan(x[f])) continue;
+        const int b = t.Bin(f, x[f]);
+        for (int c = 0; c < kNPid; ++c) lp[c] += std::log(t.L(f, e, b, c));
+    }
+    const double m = *std::max_element(lp.begin(), lp.end());
+    double s = 0;
+    for (auto& v : lp) s += (v = std::exp(v - m));
+    for (auto& v : lp) v /= s;
+    return lp;
+}
+
+// CSV: "feature,ebin,bin,lo,hi,gamma,e,pi,p,n", one row per likelihood bin
+// (lo/hi = feature range); "prior,ebin,-1,0,0,..." rows hold the priors.
+inline void SavePid(const PidTable& t, const std::string& path)
+{
+    std::ofstream f(path);
+    f << "feature,ebin,bin,lo,hi";
+    for (const char* n : kPidName) f << "," << n;
+    f << "\n";
+    for (int e = 0; e < kNPidE; ++e) {
+        f << "prior," << e << ",-1,0,0";
+        for (double v : t.prior[e]) f << "," << v;
+        f << "\n";
+    }
+    for (int k = 0; k < kNPidFeat; ++k)
+        for (int e = 0; e < kNPidE; ++e)
+            for (int b = 0; b < PidTable::nBins; ++b) {
+                f << kPidFeat[k] << "," << e << "," << b << "," << t.lo[k] << "," << t.hi[k];
+                for (int c = 0; c < kNPid; ++c) f << "," << t.L(k, e, b, c);
+                f << "\n";
+            }
+}
+
+inline PidTable LoadPid(const std::string& path)
+{
+    std::ifstream f(path);
+    if (!f) throw std::runtime_error("LoadPid: cannot open " + path);
+    PidTable t;
+    std::string line;
+    std::getline(f, line);   // header
+    while (std::getline(f, line)) {
+        std::replace(line.begin(), line.end(), ',', ' ');
+        std::istringstream ss(line);
+        std::string name;
+        int e, b;
+        double lo, hi;
+        std::array<double, kNPid> v;
+        ss >> name >> e >> b >> lo >> hi;
+        for (auto& x : v) ss >> x;
+        if (!ss) throw std::runtime_error("LoadPid: bad line in " + path + ": " + line);
+        if (name == "prior") { t.prior[e] = v; continue; }
+        const int k = static_cast<int>(std::find_if(kPidFeat, kPidFeat + kNPidFeat, [&](const char* s) { return name == s; }) - kPidFeat);
+        if (k == kNPidFeat) throw std::runtime_error("LoadPid: unknown feature " + name);
+        t.lo[k] = lo; t.hi[k] = hi;
+        for (int c = 0; c < kNPid; ++c) t.L(k, e, b, c) = v[c];
+    }
+    return t;
 }
 
 // Closest approach of two straight lines (point + slopes at z): returns the

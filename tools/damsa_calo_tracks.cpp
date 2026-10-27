@@ -12,6 +12,9 @@
 // two photons passed the photon ID: reco vertex vs truth) and event displays
 // plots/tracks/<tag>/evt_<id>.png (calorimeter top view; with --traj, the true
 // in-calo trajectories by species). Calo-Reco-Explained §2.13-2.14.
+// With --pid output/pid_table.csv (damsa_track_plots --pid-table), every object
+// also gets species probabilities P_gamma..P_n (Edge-HadronID-ALP plan B3),
+// shown next to it in the displays as its two most likely species.
 
 #include "damsa_io.h"
 #include "calo_reco.h"
@@ -20,6 +23,7 @@
 #include <TCanvas.h>
 #include <TColor.h>
 #include <TH2D.h>
+#include <TLatex.h>
 #include <TLegend.h>
 #include <TLine.h>
 #include <TMarker.h>
@@ -78,8 +82,10 @@ const char* kHad = "#4a3aa7";
 // each panel the other view's layers are empty columns. Truth: the real
 // trajectories inside the CsI when available (--traj), else straight photon
 // lines from the calo face.
+using Prob = std::array<double, calo::kNPid>;
+
 void Display(int evt, const std::vector<double>& E, const std::vector<calo::Photon3D>& ph,
-             const std::vector<Truth>& tr, const std::vector<io::CaloTrajRow>* traj,
+             const std::vector<Prob>& P, const std::vector<Truth>& tr, const std::vector<io::CaloTrajRow>* traj,
              const std::vector<calo::TrackerHit>* si, const calo::Geometry& g, const calo::RecoParams& p, double truthMin, const std::string& path)
 {
     const int nLayers = static_cast<int>(E.size()) / g.nPerLayer;
@@ -189,6 +195,19 @@ void Display(int evt, const std::vector<double>& E, const std::vector<calo::Phot
         for (const auto& q : ph)
             line(v == 0 ? q.x : q.y, v == 0 ? q.tx : q.ty, reco, q.photon ? 1 : 7, q.photon ? 3 : 2,
                  (q.last + 1) * p.layerThick / 10.0);   // reco segment: calo front to its last layer
+        // Species candidates: the two most probable, at the object's last layer.
+        static const char* tex[calo::kNPid] = {"#gamma", "e", "#pi", "p", "n"};
+        for (std::size_t k = 0; k < P.size(); ++k) {
+            int a = 0, b = 1;
+            for (int c = 0; c < calo::kNPid; ++c) if (P[k][c] > P[k][a]) a = c;
+            if (a == b) b = 0;
+            for (int c = 0; c < calo::kNPid; ++c) if (c != a && P[k][c] > P[k][b]) b = c;
+            const double d = (ph[k].last + 1) * p.layerThick / 10.0;
+            const double u = std::clamp(((v == 0 ? ph[k].x : ph[k].y) + (v == 0 ? ph[k].tx : ph[k].ty) * d * 10) / 10.0, -0.9 * h, 0.9 * h);
+            auto* T = new TLatex(std::min(d, depth - 6.0) + 0.3, u, Form("%s %.2f | %s %.2f", tex[a], P[k][a], tex[b], P[k][b]));
+            T->SetTextSize(0.045); T->SetTextColor(reco); T->SetTextAlign(12);
+            T->Draw(); keep.push_back(T);
+        }
         if (si)   // reconstructed charged tracks through the Si planes, up to the calo face
             for (const auto& t : calo::FindSiTracks(*si, p)) {
                 const double a = (v == 0 ? t.x : t.y) / 10.0, b = v == 0 ? t.tx : t.ty;
@@ -231,7 +250,7 @@ void Display(int evt, const std::vector<double>& E, const std::vector<calo::Phot
 
 int main(int argc, char** argv)
 {
-    std::string hits, truthPath, trackerPath, trajPath, tag = "run", outDir = "output", plotDir = "plots/tracks";
+    std::string hits, truthPath, trackerPath, trajPath, pidPath, tag = "run", outDir = "output", plotDir = "plots/tracks";
     calo::RecoParams p;
     calo::Geometry g;
     double cellThr = 0.1, minE = 5.0, matchR = 35.3, truthMin = 5.0;
@@ -267,17 +286,22 @@ int main(int argc, char** argv)
         else if (s == "--si-road-mm")         p.siRoad = std::stod(nx());
         else if (s == "--charged-mask-mm")    p.chargedMask = std::stod(nx());
         else if (s == "--n-display")          nDisplay = std::stoi(nx());
+        else if (s == "--fid-margin-mm")      p.fidMargin = std::stod(nx());
+        else if (s == "--pid")                pidPath = nx();
         else {
             std::fprintf(stderr, "usage: %s --hits PATH --truth PATH [--tag NAME] [--tracker PATH] [--traj PATH]\n"
                                  "  [--cell-threshold-MeV 0.1 --seed-MeV 0.5 --min-photon-MeV 5\n"
                                  "   --truth-min-MeV 5 --match-radius-mm 35.3 --max-miss 2 --n-display 20\n"
                                  "   --max-balance 0.8 --max-start-gap 3 --max-depth-gap-mm 40 --track-seed-MeV 2\n"
                                  "   --em-max-start-layer 6 --em-max-tmax-pull 3 --mip-min-layers 8 --mip-max-bars 1.6\n"
-                                 "   --min-veto-planes 4 --veto-road-mm 20 --charged-mask-mm 70.6 --out-dir output --plot-dir plots/tracks]\n", argv[0]);
+                                 "   --min-veto-planes 4 --veto-road-mm 20 --charged-mask-mm 70.6 --out-dir output --plot-dir plots/tracks\n"
+                                 "   --fid-margin-mm 10 --pid output/pid_table.csv]\n", argv[0]);
             return 1;
         }
     }
     if (hits.empty() || truthPath.empty()) { std::fprintf(stderr, "Error: --hits and --truth required.\n"); return 1; }
+    calo::PidTable pid;
+    if (!pidPath.empty()) pid = calo::LoadPid(pidPath);
 
     std::map<int, std::vector<io::CaloHitRow>> evHits;
     int nCells = 0;
@@ -310,10 +334,10 @@ int main(int argc, char** argv)
     std::ofstream fo(outDir + "/tracks_" + tag + ".csv"), fp(outDir + "/track_pairs_" + tag + ".csv");
     fo << "eventID,E,x,y,tx,ty,sx,sy,stx,sty,nLayers,start,tmaxLayer,tmaxPull,balance,fixedDir,"
           "nLit,last,medLayerE,layerEcv,peakRatio,meanBars,widthEarly,widthLate,cls,vetoPlanes,vetoInfo,photon,"
-          "charged,siX,siY,siTx,siTy,matched,ghost,true_pdg,true_parent,true_E,true_x,true_y,true_tx,true_ty,true_vz,"
+          "charged,siX,siY,siTx,siTy,xCore,yCore,edgeX,edgeY,fiducial,P_gamma,P_e,P_pi,P_p,P_n,matched,ghost,true_pdg,true_parent,true_E,true_x,true_y,true_tx,true_ty,true_vz,"
           "dtheta_mrad,dx_at_vertex_mm,dy_at_vertex_mm\n";
     fp << "eventID,E1,E2,true_E1,true_E2,vtx_x,vtx_y,vtx_z,vtx_dist,true_vx,true_vy,true_vz,"
-          "m_reco_dir,m_fixed_vertex,m_true\n";
+          "m_reco_dir,m_fixed_vertex,m_true,fid1,fid2\n";
 
     gStyle->SetOptStat(0);
     {   // Single-hue (neutral) sequential map for bar energy; lines carry the categorical colours.
@@ -340,6 +364,8 @@ int main(int argc, char** argv)
             for (std::size_t i = 0; i < ph.size(); ++i) nVetoed += before[i] && !ph[i].photon;
         }
         const auto& tr = evTruth[evt];
+        std::vector<Prob> P;
+        if (!pidPath.empty()) for (const auto& q : ph) P.push_back(calo::PidProb(calo::PidFeatures(q), q.E, pid));
 
         std::vector<char> found[2] = {std::vector<char>(tr.size(), 0), std::vector<char>(tr.size(), 0)};
         std::vector<int> match(ph.size(), -1);
@@ -362,7 +388,9 @@ int main(int argc, char** argv)
                << q.peakRatio << "," << q.meanBars << "," << q.widthEarly << "," << q.widthLate << ","
                << q.cls << "," << q.vetoPlanes << "," << q.vetoInfo << "," << q.photon << ","
                << q.charged << "," << q.siX << "," << q.siY << "," << q.siTx << "," << q.siTy << ","
-               << (m >= 0) << "," << ghost;
+               << q.xCore << "," << q.yCore << "," << q.edgeX << "," << q.edgeY << "," << q.fiducial << ",";
+            for (int c = 0; c < calo::kNPid; ++c) fo << (P.empty() ? "" : std::to_string(P[i][c])) << ",";
+            fo << (m >= 0) << "," << ghost;
             if (m >= 0) {
                 const Truth& t = tr[m];
                 const double dz = t.vz - p.frontZ;   // extrapolate the reco line back to the truth vertex depth
@@ -395,7 +423,7 @@ int main(int argc, char** argv)
                << u.vx << "," << u.vy << "," << u.vz << ","
                << Mass(ph[i].E, ph[i].tx, ph[i].ty, ph[j].E, ph[j].tx, ph[j].ty) << ","
                << calo::Mgg(ph[i].E, ph[i].x, ph[i].y, ph[j].E, ph[j].x, ph[j].y, L) << ","
-               << Mass(u.E, u.tx, u.ty, w.E, w.tx, w.ty) << "\n";
+               << Mass(u.E, u.tx, u.ty, w.E, w.tx, w.ty) << "," << ph[i].fiducial << "," << ph[j].fiducial << "\n";
         }
 
         // Displays: with --traj, only events that have trajectories.
@@ -404,7 +432,7 @@ int main(int argc, char** argv)
         if (nDisp < nDisplay && !ph.empty() && (trajPath.empty() || haveTraj)) {
             static const std::vector<calo::TrackerHit> noHits;   // with --tracker, always draw the Si region
             const auto si = evTracker.find(evt);
-            Display(evt, E, ph, tr, haveTraj ? &tj->second : nullptr,
+            Display(evt, E, ph, P, tr, haveTraj ? &tj->second : nullptr,
                     trackerPath.empty() ? nullptr : si == evTracker.end() ? &noHits : &si->second, g, p, truthMin,
                     dispDir + "/evt_" + std::to_string(evt));
             ++nDisp;

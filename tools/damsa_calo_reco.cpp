@@ -59,6 +59,7 @@ struct Args {
     double massWindow = 20.0, esumMin = 5.0, zCut = 0.8;
     double cellThr = 0.1, seed = 0.5, clusterMin = 5.0, truthMin = 1.0, effMin = 10.0;   // seed: soft photons peak at ~1.5 MeV per strip
     double resA = 0.02, resB = 0.01, matchR = 36.0, lever_mm = 470.0;
+    double fidMargin = 10.0;      // mm, Edge-HadronID-ALP A4 (depth reco only)
     calo::Geometry geo;
     std::string reco = "depth";   // depth (Calo-Reco-Explained §2.13) | summed (old: layers summed, energy-rank x/y)
     std::uint64_t rngSeed = 12345;
@@ -158,6 +159,7 @@ int main(int argc, char** argv)
         else if (s == "--out-csv")             a.outCsv = nx();
         else if (s == "--seed")                a.rngSeed = std::stoull(nx());
         else if (s == "--reco")                a.reco = nx();
+        else if (s == "--fid-margin-mm")       a.fidMargin = std::stod(nx());
         else {
             std::fprintf(stderr,
                 "Usage: %s --hits calo_hits.root --truth calo_face_particles.root [--tracker tracker_hits.root --si-max-hits 120]\n"
@@ -167,7 +169,7 @@ int main(int argc, char** argv)
                 "           --cell-threshold-MeV 0.1 --seed-MeV 0.5 --cluster-min-MeV 5 --eff-min-MeV 10\n"
                 "           --res-a 0.02 --res-b 0.01 --match-radius-mm 36\n"
                 "           --lever-arm-mm 470 --calo-xy-mm 120 --n-per-layer 12\n"
-                "           --reco depth|summed (default depth)\n"
+                "           --reco depth|summed (default depth) --fid-margin-mm 10\n"
                 "           --n-trials 2000 --out-csv PATH --seed N]\n", argv[0]);
             return 1;
         }
@@ -182,6 +184,7 @@ int main(int argc, char** argv)
     if (a.reco != "depth" && a.reco != "summed") { std::fprintf(stderr, "Unknown --reco %s\n", a.reco.c_str()); return 1; }
     calo::RecoParams rp;
     rp.seed = a.seed;
+    rp.fidMargin = a.reco == "depth" ? a.fidMargin : 0.0;   // the summed path has no shower axis
 
     int nCells = 0;
     const auto lib = LoadLibrary(a, nCells);
@@ -254,7 +257,13 @@ int main(int argc, char** argv)
                 if (tr.size() - first >= 2) drawRange.push_back({first, tr.size()});
             }
 
-            auto inCalo = [&](const Truth& t) { return std::abs(t.x) < half && std::abs(t.y) < half; };
+            // Truth gets the reco fiducial cut (Edge-HadronID-ALP A4), on the core at the
+            // expected shower-max depth: conversion after 9/7 X0, then t_max = ln(E/E_c) - 0.5.
+            auto inCalo = [&](const Truth& t) {
+                const double dz = rp.X0 * (9.0 / 7.0 + std::max(0.0, std::log(t.E / rp.critE) - 0.5));
+                const double lim = half - rp.fidMargin;
+                return std::abs(t.x + t.ux / t.uz * dz) < lim && std::abs(t.y + t.uy / t.uz * dz) < lim;
+            };
             // ── genuine truth pairs present (per mass, E bin): one electron at a time ──
             std::vector<char> hasPair(nM * nE, 0);
             for (const auto& [b, e] : drawRange)
@@ -303,10 +312,10 @@ int main(int argc, char** argv)
                 }
                 std::vector<calo::Photon> raw;
                 if (a.reco == "depth") {
-                    // Photon ID (§2.14): EM-shower class, not vetoed by the Si planes.
+                    // Photon ID (§2.14): EM-shower class, not vetoed by the Si planes, core fiducial.
                     auto obj = calo::ReconstructDepth(Ec, Tc, a.geo, rp);
                     if (!a.tracker.empty()) calo::ApplyVeto(obj, siTracks, rp);
-                    for (const auto& q : obj) if (q.photon) raw.push_back({q.E, q.x, q.y, q.t});
+                    for (const auto& q : obj) if (q.photon && q.fiducial) raw.push_back({q.E, q.x, q.y, q.t});
                 } else {
                     // Old path: each projection summed over its layers (depth lost), energy-rank x/y.
                     std::vector<calo::Strip> px(nPer), py(nPer);

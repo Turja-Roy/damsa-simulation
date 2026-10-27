@@ -138,6 +138,58 @@ int main()
         assert(ph.size() == 2 && nPh == 1);
     }
 
+    // Edge centroid: a 10 mm Gaussian centred on bar 10 (x = 45 mm, 1.5 bars from the side) loses
+    // its outer halo past x = 60. The full-cluster centroid is pulled ~1.3 mm inward; the window
+    // symmetric about the peak bar is not.
+    {
+        std::vector<double> Ec(528, 0.0), Tc(528, 1.0);
+        std::vector<Strip> lay(12);
+        for (int st = 0; st < 12; ++st) {
+            const double d = g.stripPos(st) - 45;
+            lay[st].E = Ec[1 * 12 + st] = 100 * std::exp(-d * d / 200);
+        }
+        const auto full = ClusterProjection(lay, g, rp.seed, rp.seed, rp.minPeakSep);
+        const auto cl = LayerClusters(Ec, Tc, g, rp);
+        assert(full.size() == 1 && full[0].pos < 44 && cl[1].size() == 1);   // mutation check: the old centroid fails
+        assert(std::abs(cl[1][0].u - 45) < 0.05);
+    }
+    // Leak correction and fiducial flag: core 15 mm from the x side -> E / (1 - 1.8 e^{-15/6.75}) = E / 0.805,
+    // fiducial; 5 mm -> correction capped at x2, not fiducial.
+    for (double x0 : {45.0, 55.0}) {
+        std::vector<double> Ec(528, 0.0), Tc(528, 1.0);
+        addShowerProfile(Ec, x0, 0, 1);
+        RecoParams r0 = rp;
+        r0.leakA = 0;
+        const auto ph = ReconstructDepth(Ec, Tc, g, rp), ph0 = ReconstructDepth(Ec, Tc, g, r0);
+        assert(ph.size() == 1 && ph0.size() == 1 && std::abs(ph[0].edgeX - (60 - x0)) < 0.5 && ph[0].edgeY > 55);
+        assert(std::abs(ph[0].E / ph0[0].E - (x0 < 50 ? 1 / 0.805 : 2.0)) < 0.02);
+        assert(ph[0].fiducial == (x0 < 50));
+    }
+
+    // Species probabilities: toy table, gamma rows at start = 1, n rows at start = 10, other features
+    // missing. Bin 0 of 20 (+0.5 each): L(gamma) = 10.5 / 20, L(n) = 0.5 / 20, e / pi / p flat 1 / 20;
+    // flat priors -> P(gamma | start = 1) = 0.525 / 0.7 = 0.75.
+    {
+        PidX miss;
+        miss.fill(std::nan(""));
+        std::vector<PidX> x;
+        std::vector<double> e;
+        std::vector<int> c;
+        for (int i = 0; i < 20; ++i) {
+            x.push_back(miss); x.back()[0] = i < 10 ? 1 : 10;
+            e.push_back(100); c.push_back(i < 10 ? kPGamma : kPN);
+        }
+        const auto t = BuildPid(x, e, c);
+        PidX q = miss;
+        q[0] = 1;
+        const auto pr = PidProb(q, 100, t);
+        assert(std::abs(pr[kPGamma] - 0.75) < 1e-9 && std::abs(pr[kPN] - 0.025 / 0.7) < 1e-9);
+        SavePid(t, "calo_reco_test_pid.csv");
+        const auto pr2 = PidProb(q, 100, LoadPid("calo_reco_test_pid.csv"));
+        std::remove("calo_reco_test_pid.csv");
+        assert(std::abs(pr2[kPGamma] - 0.75) < 1e-5);
+    }
+
     // Closest approach: two lines from (5, -3, -450) meet there.
     {
         const double zv = -450, z0 = 20;
