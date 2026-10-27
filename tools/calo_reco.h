@@ -183,12 +183,18 @@ struct RecoParams {
 
     // Edges (Edge-HadronID-ALP plan A1, A3-A4). Lateral leak of a shower whose core
     // (axis at the shower-max layer) is d from a calo side: E / E_central = 1 - leakA exp(-d / leakLambda),
-    // fitted on the pi0/eta guns for d >= 5 mm. The correction is capped at 1/leakMinKeep
-    // (d < ~9 mm), where the measured spread is too large to correct.
-    double leakA = 1.8, leakLambda = 6.75;   // calibration knobs
+    // fitted on the pi0/eta guns (cluster 2026-10-26, symmetric-window cores) for d >= 7.5 mm, within
+    // 0.01 from 8.7 to 35 mm. The correction is capped at 1/leakMinKeep (d < ~5 mm: a shower peaking
+    // in the outermost bar), where the measured spread is too large to correct.
+    double leakA = 0.84, leakLambda = 9.4;   // calibration knobs (first fit 1.8 / 6.75 was on inward-biased cores)
     double leakMinKeep = 0.5;
     double fidMargin = 10;        // mm: fiducial = core >= this far from both sides (one bar; within
                                   // it the outermost bar holds the whole axis, so no direction)
+    // Direction fit (DirFit): layers past shower max kept, and the side guard for deeper ones.
+    // Scanned 2-10 layers on the pi0/eta guns (2026-10-26): 4 removes the slope bias up to
+    // 0.18 rad; the guard keeps the deep lever arm, so shallow photons lose no resolution.
+    int    fitPastTmax = 4;       // layers (both views): 4 cm = 2.2 X0
+    double fitSideGuard = 20;     // mm
 };
 
 struct LayerCluster { int layer; double u, E, t; int nb; double rms; };   // nb: bars lit, rms: lateral [mm]
@@ -520,6 +526,30 @@ inline void ApplyVeto(std::vector<Photon3D>& objs, const std::vector<TrackerHit>
     ApplyVeto(objs, FindSiTracks(hits, p), p);
 }
 
+// Final direction of one view: the line fit kept to the shower around its maximum.
+// Deeper down, a steep shower runs toward the side, loses its outer halo and its
+// clusters lag inward (5-29 mm), which flattened the slope by 25-75 % above 0.1 rad
+// (Direction-Templates plan D0-D1). Keep clusters up to fitPastTmax layers past shower
+// max, plus deeper ones where the line stays >= fitSideGuard inside the side. Only the
+// line and its covariance of the result are used.
+inline Track2D DirFit(Track2D t, const std::vector<LayerCluster>& cl, int tmax, const Geometry& g,
+                      const RecoParams& p)
+{
+    if (t.fixedDir) return t;
+    const std::vector<int> all = t.idx;
+    for (int pass = 0; pass < 3; ++pass) {   // window only, then the side guard twice
+        std::vector<int> keep;
+        for (int i : all)
+            if (cl[i].layer <= tmax + p.fitPastTmax ||
+                (pass > 0 && std::abs(t.a + t.b * LayerZ(cl[i].layer, p)) <= g.caloXY_mm / 2 - p.fitSideGuard))
+                keep.push_back(i);
+        if (keep.size() < 2) break;
+        t.idx = keep;
+        FitTrack(t, cl, g, p);
+    }
+    return t;
+}
+
 // Step 4. x/y pairing by depth and energy balance (min total cost).
 // ponytail: brute force over permutations up to 7 tracks per view, greedy above.
 inline std::vector<Photon3D> MatchViews(const std::vector<Track2D>& xs, const std::vector<Track2D>& ys,
@@ -574,31 +604,33 @@ inline std::vector<Photon3D> MatchViews(const std::vector<Track2D>& xs, const st
         const Track2D& y = swapViews ? A[ia] : B[ib];
         if (cost(x, y) >= 1e9) continue;
         Photon3D ph{};
+        // Shower max (the most energetic layer) first: the direction fit is kept around it.
+        double emax = -1;
+        for (int i : x.idx) if (xcl[i].E > emax) { emax = xcl[i].E; ph.tmaxLayer = xcl[i].layer; }
+        for (int i : y.idx) if (ycl[i].E > emax) { emax = ycl[i].E; ph.tmaxLayer = ycl[i].layer; }
+        const Track2D lx = DirFit(x, xcl, ph.tmaxLayer, g, p), ly = DirFit(y, ycl, ph.tmaxLayer, g, p);
         ph.E = x.E + x.Ehalo + y.E + y.Ehalo;
-        ph.tx = x.b; ph.ty = y.b;
-        ph.x = x.a + x.b * p.frontZ;
-        ph.y = y.a + y.b * p.frontZ;
+        ph.tx = lx.b; ph.ty = ly.b;
+        ph.x = lx.a + lx.b * p.frontZ;
+        ph.y = ly.a + ly.b * p.frontZ;
         ph.t = (x.t * x.E + y.t * y.E) / (x.E + y.E);
-        ph.sx = std::sqrt(std::max(0.0, x.caa + 2 * p.frontZ * x.cab + p.frontZ * p.frontZ * x.cbb));
-        ph.sy = std::sqrt(std::max(0.0, y.caa + 2 * p.frontZ * y.cab + p.frontZ * p.frontZ * y.cbb));
-        ph.stx = std::sqrt(x.cbb); ph.sty = std::sqrt(y.cbb);
+        ph.sx = std::sqrt(std::max(0.0, lx.caa + 2 * p.frontZ * lx.cab + p.frontZ * p.frontZ * lx.cbb));
+        ph.sy = std::sqrt(std::max(0.0, ly.caa + 2 * p.frontZ * ly.cab + p.frontZ * p.frontZ * ly.cbb));
+        ph.stx = std::sqrt(lx.cbb); ph.sty = std::sqrt(ly.cbb);
         ph.nLayers = static_cast<int>(x.idx.size() + y.idx.size());
         ph.start = std::min(x.first, y.first);
         ph.fixedDir = x.fixedDir || y.fixedDir;
         ph.balance = std::abs(x.E + x.Ehalo - y.E - y.Ehalo) / ph.E;
-        // Longitudinal consistency: depth of the most energetic layer vs the
-        // shower-maximum expectation t_max = ln(E/E_c) - 0.5 radiation lengths.
-        double emax = -1;
-        for (int i : x.idx) if (xcl[i].E > emax) { emax = xcl[i].E; ph.tmaxLayer = xcl[i].layer; }
-        for (int i : y.idx) if (ycl[i].E > emax) { emax = ycl[i].E; ph.tmaxLayer = ycl[i].layer; }
         // Core and edge distance; undo the lateral leak before anything uses E.
         const double zc = LayerZ(ph.tmaxLayer, p);
-        ph.xCore = x.a + x.b * zc; ph.yCore = y.a + y.b * zc;
+        ph.xCore = lx.a + lx.b * zc; ph.yCore = ly.a + ly.b * zc;
         ph.edgeX = g.caloXY_mm / 2 - std::abs(ph.xCore); ph.edgeY = g.caloXY_mm / 2 - std::abs(ph.yCore);
         auto kept = [&](double d) { return std::max(p.leakMinKeep, 1 - p.leakA * std::exp(-d / p.leakLambda)); };
         ph.E /= kept(ph.edgeX) * kept(ph.edgeY);
         ph.fiducial = std::min(ph.edgeX, ph.edgeY) >= p.fidMargin;
-        // From the shower start (the conversion point), not the calo front.
+        // Longitudinal consistency: depth of the most energetic layer vs the
+        // shower-maximum expectation t_max = ln(E/E_c) - 0.5 radiation lengths,
+        // from the shower start (the conversion point), not the calo front.
         const double tMeas = (ph.tmaxLayer - ph.start + 0.5) * p.layerThick / p.X0;
         const double tExp = std::max(0.0, std::log(ph.E / p.critE) - 0.5);
         ph.tmaxPull = tMeas - tExp;   // in X0

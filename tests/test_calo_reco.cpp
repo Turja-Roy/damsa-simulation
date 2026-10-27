@@ -153,8 +153,8 @@ int main()
         assert(full.size() == 1 && full[0].pos < 44 && cl[1].size() == 1);   // mutation check: the old centroid fails
         assert(std::abs(cl[1][0].u - 45) < 0.05);
     }
-    // Leak correction and fiducial flag: core 15 mm from the x side -> E / (1 - 1.8 e^{-15/6.75}) = E / 0.805,
-    // fiducial; 5 mm -> correction capped at x2, not fiducial.
+    // Leak correction and fiducial flag: core 15 mm from the x side -> E / (1 - 0.84 e^{-15/9.4}) = E / 0.830,
+    // fiducial; 5 mm -> E / 0.5065, not fiducial.
     for (double x0 : {45.0, 55.0}) {
         std::vector<double> Ec(528, 0.0), Tc(528, 1.0);
         addShowerProfile(Ec, x0, 0, 1);
@@ -162,8 +162,33 @@ int main()
         r0.leakA = 0;
         const auto ph = ReconstructDepth(Ec, Tc, g, rp), ph0 = ReconstructDepth(Ec, Tc, g, r0);
         assert(ph.size() == 1 && ph0.size() == 1 && std::abs(ph[0].edgeX - (60 - x0)) < 0.5 && ph[0].edgeY > 55);
-        assert(std::abs(ph[0].E / ph0[0].E - (x0 < 50 ? 1 / 0.805 : 2.0)) < 0.02);
+        assert(std::abs(ph[0].E / ph0[0].E - (x0 < 50 ? 1 / 0.830 : 1 / 0.5065)) < 0.02);
         assert(ph[0].fiducial == (x0 < 50));
+    }
+
+    // Steep shower: x axis at 30 mm on the face, +0.15 per mm of depth, so it reaches the side
+    // 200 mm in while its core at shower max (layer ~8) is fiducial. The lateral width grows
+    // with depth (8 mm + 1 mm per X0); past x = 55 mm (the last bar's centre) the deep clusters
+    // lag behind the axis, which flattened the old all-layer fit to 0.118. DirFit keeps the
+    // shower around its maximum: 0.137 (Direction-Templates plan D1).
+    {
+        std::vector<double> Ec(528, 0.0), Tc(528, 1.0);
+        for (int l = 1; l < 44; ++l) {
+            const double t = (l - 0.5) * rp.layerThick / rp.X0;
+            const double Elay = 120 * t * t * std::exp(-t / 2.0);   // peaks 4 X0 in
+            const double w = 8 + t;
+            const double c = (l % 2 == 0) ? 0 : 30 + 0.15 * (LayerZ(l, rp) - rp.frontZ);
+            for (int st = 0; st < 12; ++st) {
+                const double d = g.stripPos(st) - c;
+                const double e = Elay * 10 / (std::sqrt(2 * M_PI) * w) * std::exp(-d * d / (2 * w * w));
+                if (e > 0.05) Ec[l * 12 + st] += e;
+            }
+        }
+        RecoParams r0 = rp;
+        r0.fitPastTmax = 100;   // the old fit: every layer
+        const auto ph = ReconstructDepth(Ec, Tc, g, rp), ph0 = ReconstructDepth(Ec, Tc, g, r0);
+        assert(ph.size() == 1 && ph0.size() == 1 && ph[0].fiducial);
+        assert(std::abs(ph[0].tx - 0.15) < 0.02 && ph[0].tx - ph0[0].tx > 0.015);   // mutation check: the old fit fails
     }
 
     // Species probabilities: toy table, gamma rows at start = 1, n rows at start = 10, other features
