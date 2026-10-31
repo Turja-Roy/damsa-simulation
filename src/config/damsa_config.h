@@ -115,7 +115,12 @@ inline double     gBeamSpotSigma_mm = 0.0;     // transverse Gaussian beam spot 
 // /gun/position z. Both 0 = off (the gun as set by /gun/ commands).
 inline double     gGunSpreadXY_mm = 0.0;
 inline double     gGunMaxSlope    = 0.0;
-inline double     gGunAimZ_mm     = 20.1;      // CsI front face, default geometry (RecoParams::frontZ)
+inline double     gGunAimZ_mm     = 20.1;      // CsI front face; Construct() sets it from the geometry
+// MC origin for the templates (tools/damsa_gun_origin.cpp): CSV of z_lo_mm,z_hi_mm,weight.
+// Set = each event starts on the axis at a z drawn from it (clamped to the target exit),
+// aims uniform within +-gGunSpreadXY_mm on the face, |slope| <= gGunMaxSlope. "" = off.
+inline std::string gGunOriginTable = "";
+inline double     gTargetExitZ_mm = -400.0;    // set by Construct()
 inline int        gMaxDirectElectrons = 10000; // guard: above this, use overlay (§3.3 Strat 2)
 
 // Total electrons actually fired this run (summed across MT worker threads).

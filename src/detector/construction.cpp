@@ -132,6 +132,7 @@ void DamsaDetectorConstruction::BuildTarget(G4LogicalVolume* worldLV, G4double& 
 
     zPos += fTargetZ;
     fTargetExitZ = zPos;  // Target exit = start-of-build (-50 cm) + fTargetZ
+    DamsaConfig::gTargetExitZ_mm = fTargetExitZ / mm;   // template gun origin clamp
     G4cout << "[Construction] Target length: " << fTargetZ/cm << " cm"
            << "  exit Z: " << fTargetExitZ/cm << " cm" << G4endl;
 }
@@ -295,6 +296,7 @@ void DamsaDetectorConstruction::BuildCalorimeter(G4LogicalVolume* worldLV, G4dou
 
     G4double ecalFrontZ  = fCaloEntranceZ + 2.*scoringHalfThickness;
     G4double ecalCenterZ = ecalFrontZ + ecalDepth / 2.;
+    DamsaConfig::gGunAimZ_mm = ecalFrontZ / mm;   // template gun aims at the real face
 
     G4cout << "ECAL front face absolute Z: " << ecalFrontZ/cm  << " cm" << G4endl;
     G4cout << "ECAL center absolute Z:     " << ecalCenterZ/cm << " cm" << G4endl;

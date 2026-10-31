@@ -50,6 +50,7 @@ private:
     G4UIcmdWithADoubleAndUnit* fSetBeamSpotSigmaCmd;
     G4UIcmdWithADoubleAndUnit* fSetGunSpreadCmd;
     G4UIcmdWithADouble*        fSetGunMaxSlopeCmd;
+    G4UIcmdWithAString*        fSetGunOriginTableCmd;
 };
 
 // ── Inline implementation ─────────────────────────────────────────────────────
@@ -66,7 +67,7 @@ inline DamsaDetectorMessenger::DamsaDetectorMessenger(DamsaDetectorConstruction*
   fSetWriteCSVCmd(nullptr), fSetCaloHitEventLimitCmd(nullptr), fSetTrajEventLimitCmd(nullptr), fSetWriteNTupleCmd(nullptr),
   fSetBeamModeCmd(nullptr),
   fSetPulsedBeamCmd(nullptr), fSetReadoutGateCmd(nullptr), fSetBeamSpotSigmaCmd(nullptr),
-  fSetGunSpreadCmd(nullptr), fSetGunMaxSlopeCmd(nullptr)
+  fSetGunSpreadCmd(nullptr), fSetGunMaxSlopeCmd(nullptr), fSetGunOriginTableCmd(nullptr)
 {
     fDetDir = new G4UIdirectory("/damsa/");
     fDetDir->SetGuidance("DAMSA detector control commands.");
@@ -173,6 +174,12 @@ inline DamsaDetectorMessenger::DamsaDetectorMessenger(DamsaDetectorConstruction*
     fSetGunMaxSlopeCmd->SetParameterName("s", false);
     fSetGunMaxSlopeCmd->SetRange("s>=0.");
     fSetGunMaxSlopeCmd->AvailableForStates(G4State_PreInit, G4State_Idle);
+
+    fSetGunOriginTableCmd = new G4UIcmdWithAString("/damsa/setGunOriginTable", this);
+    fSetGunOriginTableCmd->SetGuidance("Level A: per-event start z from a z_lo_mm,z_hi_mm,weight CSV (damsa_gun_origin),");
+    fSetGunOriginTableCmd->SetGuidance("on the axis, aimed into the face (setGunSpread / setGunMaxSlope). \"\" = off.");
+    fSetGunOriginTableCmd->SetParameterName("Path", false);
+    fSetGunOriginTableCmd->AvailableForStates(G4State_PreInit, G4State_Idle);
 }
 
 inline DamsaDetectorMessenger::~DamsaDetectorMessenger()
@@ -191,6 +198,7 @@ inline DamsaDetectorMessenger::~DamsaDetectorMessenger()
     delete fSetBeamSpotSigmaCmd;
     delete fSetGunSpreadCmd;
     delete fSetGunMaxSlopeCmd;
+    delete fSetGunOriginTableCmd;
     delete fDetDir;
 }
 
@@ -248,6 +256,9 @@ inline void DamsaDetectorMessenger::SetNewValue(G4UIcommand* cmd, G4String val)
     } else if (cmd == fSetGunMaxSlopeCmd) {
         DamsaConfig::gGunMaxSlope = fSetGunMaxSlopeCmd->GetNewDoubleValue(val);
         G4cout << "[Config] Gun max slope: +-" << DamsaConfig::gGunMaxSlope << G4endl;
+    } else if (cmd == fSetGunOriginTableCmd) {
+        DamsaConfig::gGunOriginTable = (val == "\"\"") ? "" : val;
+        G4cout << "[Config] Gun origin table: " << DamsaConfig::gGunOriginTable << G4endl;
     }
 }
 

@@ -5,11 +5,15 @@
 
 #include "G4ParticleGun.hh"
 #include "G4SystemOfUnits.hh"
+#include "G4PhysicalConstants.hh"
 #include "G4ParticleTable.hh"
 #include "Randomize.hh"
 
 #include "damsa_config.h"
+#include "damsa_io.h"
 #include "gate_sampler.h"
+
+#include <algorithm>
 
 class DamsaPrimaryGenerator : public G4VUserPrimaryGeneratorAction {
 public:
@@ -23,6 +27,10 @@ public:
 
 private:
     G4ThreeVector SampleBeamSpot() const;   // beam origin, optional transverse spread
+    void LoadOriginTable();                 // gGunOriginTable -> fOriginZlo/Zhi/Cdf
+
+    std::string fOriginPath;                // table currently loaded
+    std::vector<double> fOriginZlo, fOriginZhi, fOriginCdf;   // mm, cumulative weight
 
     G4ParticleGun* fParticleGun;
     G4double fCurrentEnergy;
@@ -61,7 +69,26 @@ void DamsaPrimaryGenerator::GeneratePrimaries(G4Event* anEvent) {
     // Level A: one electron per event.
     if (!DamsaConfig::gPulsedBeam) {
         DamsaConfig::gElectronsFired += 1;
-        if (DamsaConfig::gGunSpreadXY_mm > 0. || DamsaConfig::gGunMaxSlope > 0.) {
+        if (!DamsaConfig::gGunOriginTable.empty()) {
+            // MC origin: z0 from the table (library vertices inside the W start at its exit face),
+            // on the axis, aimed uniform on the face within the slope cap. t0 = light time from the
+            // target exit, so the calo sees the real time of flight.
+            if (fOriginPath != DamsaConfig::gGunOriginTable) LoadOriginTable();
+            const std::size_t k = std::lower_bound(fOriginCdf.begin(), fOriginCdf.end(),
+                                                   G4UniformRand() * fOriginCdf.back()) - fOriginCdf.begin();
+            const G4double zExit = DamsaConfig::gTargetExitZ_mm * mm;
+            const G4double z0 = std::max(zExit + 1. * um,
+                                         (fOriginZlo[k] + G4UniformRand() * (fOriginZhi[k] - fOriginZlo[k])) * mm);
+            const G4double L = DamsaConfig::gGunAimZ_mm * mm - z0;
+            G4double half = DamsaConfig::gGunSpreadXY_mm * mm;
+            if (DamsaConfig::gGunMaxSlope > 0.) half = std::min(half, DamsaConfig::gGunMaxSlope * L);
+            const G4ThreeVector dir = L > 0. ? G4ThreeVector(half * (2. * G4UniformRand() - 1.),
+                                                             half * (2. * G4UniformRand() - 1.), L).unit()
+                                             : G4ThreeVector(0., 0., 1.);
+            fParticleGun->SetParticlePosition(G4ThreeVector(0., 0., z0));
+            fParticleGun->SetParticleMomentumDirection(dir);
+            fParticleGun->SetParticleTime((z0 - zExit) / c_light);
+        } else if (DamsaConfig::gGunSpreadXY_mm > 0. || DamsaConfig::gGunMaxSlope > 0.) {
             // Template spread: a face point and slopes per event, start on that line at the gun z.
             const G4double h = DamsaConfig::gGunSpreadXY_mm * mm, s = DamsaConfig::gGunMaxSlope;
             const G4double tx = s * (2. * G4UniformRand() - 1.), ty = s * (2. * G4UniformRand() - 1.);
@@ -125,6 +152,27 @@ void DamsaPrimaryGenerator::GeneratePrimaries(G4Event* anEvent) {
             fParticleGun->GeneratePrimaryVertex(anEvent);
         }
     }
+}
+
+void DamsaPrimaryGenerator::LoadOriginTable() {
+    fOriginPath = DamsaConfig::gGunOriginTable;
+    fOriginZlo.clear(); fOriginZhi.clear(); fOriginCdf.clear();
+    try {
+        const auto t = damsa::io::ReadCsv(fOriginPath);
+        double sum = 0.;
+        for (std::size_t r = 0; r < t.size(); ++r) {
+            if (t.get(r, "weight") <= 0.) continue;
+            fOriginZlo.push_back(t.get(r, "z_lo_mm"));
+            fOriginZhi.push_back(t.get(r, "z_hi_mm"));
+            fOriginCdf.push_back(sum += t.get(r, "weight"));
+        }
+    } catch (const std::exception& e) {
+        G4Exception("DamsaPrimaryGenerator::LoadOriginTable", "OriginTable", FatalException, e.what());
+    }
+    if (fOriginCdf.empty())
+        G4Exception("DamsaPrimaryGenerator::LoadOriginTable", "OriginTable", FatalException,
+                    ("no rows with weight > 0 in " + fOriginPath).c_str());
+    G4cout << "[Generator] origin table " << fOriginPath << ": " << fOriginCdf.size() << " bins" << G4endl;
 }
 
 void DamsaPrimaryGenerator::SetBeamEnergy(G4double energy) {
