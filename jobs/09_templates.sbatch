@@ -9,13 +9,16 @@
 #SBATCH -e logs/templates_%j.err
 #
 # Single-particle templates for the photon ID (Calo-Reco-Explained §2.14):
-# gamma, e-, pi+, p, n at several energies, fired from just upstream of the Si
-# trackers (z = -99 mm, inside the magnet region), so the Si veto and the calo
-# see them as a beam particle would. Uses the standard Geant4 /gun commands of
-# the beam generator (one particle per event). With SPREAD=1 (default) each event
-# aims at a point uniform over the CsI face (+-60 mm) with slopes uniform within
-# +-0.3, so the species probabilities see steep and edge showers as real photons
-# make them (Direction-Templates plan T1); SPREAD=0 = head-on along the axis.
+# gamma, e-, pi+, p, n at several energies, each started where that species is
+# born in the beam MC: damsa_gun_origin turns the library truth vertices of the
+# particles reaching the calo face (output/calo_face_particles.root, from 02/03)
+# into a z table per species and energy; the generator starts each event on the
+# axis at a z from it (target-born ones at the target exit face), so templates
+# cross the end caps, Si and air a real particle crosses, with its real time of
+# flight. Uses the standard Geant4 /gun commands of the beam generator (one
+# particle per event). With SPREAD=1 (default) each event aims at a point uniform
+# over the CsI face (+-60 mm), slopes capped at 0.3 (Direction-Templates plan T1);
+# SPREAD=0 = along the axis.
 #   sbatch --dependency=afterok:<build_id> jobs/09_templates.sbatch
 #
 # Ends by writing output/pid_table.csv (species probabilities, Edge-HadronID-ALP
@@ -25,6 +28,8 @@
 set -euo pipefail
 source jobs/env.sh
 mkdir -p output/_tmpl_macros
+LIBRARY="${LIBRARY:-output/calo_face_particles.root}"
+[[ -s "$LIBRARY" ]] || { echo "missing $LIBRARY (run 02_library + 03_merge first)"; exit 1; }
 
 N="${N_TMPL:-2000}"
 PARTICLES=(gamma e- pi+ proton neutron)
@@ -34,6 +39,9 @@ for p in "${PARTICLES[@]}"; do
     for E in "${ENERGIES[@]}"; do
         tag="tmpl_$(echo "$p" | tr -d '+-')_E${E}"
         mac="output/_tmpl_macros/${tag}.mac"
+        origin="output/_tmpl_macros/gun_origin_${tag}.csv"
+        ./build/damsa_gun_origin --library "$LIBRARY" --species "$(echo "$p" | tr -d '+-')" \
+            --energy-MeV "$E" --out "$origin"
         {
             echo "/run/initialize"
             echo "/random/setSeeds $((31 + E)) $((97 + ${#p}))"
@@ -41,8 +49,7 @@ for p in "${PARTICLES[@]}"; do
             echo "/damsa/setTrajEventLimit ${TRAJ_EVENTS:-50}"
             echo "/gun/particle $p"
             echo "/gun/energy $E MeV"
-            echo "/gun/position 0 0 -99 mm"
-            echo "/gun/direction 0 0 1"
+            echo "/damsa/setGunOriginTable $origin"
             if [[ "${SPREAD:-1}" == 1 ]]; then
                 echo "/damsa/setGunSpread 60 mm"
                 echo "/damsa/setGunMaxSlope 0.3"
