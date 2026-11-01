@@ -1,7 +1,14 @@
-// Template gun origin from the beam MC: where particles of one species that reach
-// the calo face were born (library truth vz), as a weighted z table for
-// /damsa/setGunOriginTable. Vertices inside the tungsten are kept as they are;
-// the generator starts those at the target exit face (it knows the geometry).
+// Template gun origin from the beam MC: the particles of one species that reach
+// the calo face in the library (output/calo_face_particles.root), one row each,
+// for /damsa/setGunOriginTable. A row is the line through where the particle
+// really hit the face along its real direction there, started at its creation z,
+// and its creation time; the template fires along that line with its own energy.
+// Starts inside the tungsten are kept as they are: the generator (which knows
+// the geometry) moves them along the line to the target exit face. So the face
+// hit point, incidence angle and exit x-y spread are the MC's. ponytail: a
+// particle that scattered between birth and face gets a straight path upstream
+// of the face (its start is off its real vertex); the printed fraction of rows
+// whose start misses the real vertex by > 5 mm says how often.
 //
 //   ./build/damsa_gun_origin --library output/calo_face_particles.root --species neutron \
 //       --energy-MeV 100 --out output/gun_origin_neutron_E100.csv
@@ -23,7 +30,7 @@
 int main(int argc, char** argv)
 {
     std::string library = "output/calo_face_particles.root", species, out;
-    double energy = 0, window = 0.25, minE = 5, binMm = 5;
+    double energy = 0, window = 0.25, minE = 5;
     std::size_t minRows = 100;
     for (int i = 1; i < argc; ++i) {
         const std::string s = argv[i];
@@ -33,7 +40,6 @@ int main(int argc, char** argv)
         else if (s == "--energy-MeV") energy = std::stod(nx());
         else if (s == "--window")     window = std::stod(nx());
         else if (s == "--min-MeV")    minE = std::stod(nx());
-        else if (s == "--bin-mm")     binMm = std::stod(nx());
         else if (s == "--min-rows")   minRows = std::stoul(nx());
         else if (s == "--out")        out = nx();
         else { species.clear(); break; }   // unknown flag -> usage
@@ -44,7 +50,7 @@ int main(int argc, char** argv)
     if (!kPdg.count(species) || energy <= 0 || out.empty()) {
         std::fprintf(stderr, "usage: %s --species gamma|e|pi|proton|neutron --energy-MeV E --out PATH\n"
                              "          [--library output/calo_face_particles.root] [--window 0.25]\n"
-                             "          [--min-MeV 5] [--bin-mm 5] [--min-rows 100]\n", argv[0]);
+                             "          [--min-MeV 5] [--min-rows 100]\n", argv[0]);
         return 1;
     }
 
@@ -52,7 +58,7 @@ int main(int argc, char** argv)
     auto pick = [&](const std::set<int>& pdgs, bool inWindow) {
         std::vector<const damsa::io::ParticleRow*> v;
         for (const auto& r : rows)
-            if (r.pz > 0 && r.energy_MeV >= minE && pdgs.count(std::abs(r.pdg)) &&
+            if (r.pz > 0 && r.z_mm > r.vz_mm && r.energy_MeV >= minE && pdgs.count(std::abs(r.pdg)) &&
                 (!inWindow || std::abs(r.energy_MeV - energy) <= window * energy))
                 v.push_back(&r);
         return v;
@@ -63,14 +69,20 @@ int main(int argc, char** argv)
     if (sel.size() < minRows && kHadrons.count(*kPdg.at(species).begin())) { sel = pick(kHadrons, false); used = "all hadrons, all E"; }
     if (sel.empty()) { std::fprintf(stderr, "Error: no %s rows in %s\n", species.c_str(), library.c_str()); return 1; }
 
-    std::map<long, double> h;   // bin index -> weight
-    for (const auto* r : sel) h[static_cast<long>(std::floor(r->vz_mm / binMm))] += r->weight;
     damsa::io::EnsureParentDir(out);
     std::ofstream f(out);
     f << "# species: " << species << "\n# energy_MeV: " << energy << "\n# selection: " << used
-      << "\n# rows: " << sel.size() << "\n# library: " << library << "\nz_lo_mm,z_hi_mm,weight\n";
-    for (const auto& [b, w] : h) f << b * binMm << "," << (b + 1) * binMm << "," << w << "\n";
-    std::printf("%s E=%g MeV: %zu library rows (%s), z %.0f..%.0f mm -> %s\n", species.c_str(), energy,
-                sel.size(), used.c_str(), h.begin()->first * binMm, (h.rbegin()->first + 1) * binMm, out.c_str());
+      << "\n# rows: " << sel.size() << "\n# library: " << library << "\nx_mm,y_mm,z_mm,ux,uy,uz,t_ns,weight\n";
+    std::size_t kinked = 0;
+    for (const auto* r : sel) {
+        const double p = std::sqrt(r->px * r->px + r->py * r->py + r->pz * r->pz);
+        const double ux = r->px / p, uy = r->py / p, uz = r->pz / p, s = (r->z_mm - r->vz_mm) / uz;
+        const double x0 = r->x_mm - s * ux, y0 = r->y_mm - s * uy;
+        if (std::hypot(x0 - r->vx_mm, y0 - r->vy_mm) > 5) ++kinked;
+        f << x0 << "," << y0 << "," << r->vz_mm << "," << ux << "," << uy << "," << uz << ","
+          << r->vt_ns << "," << r->weight << "\n";
+    }
+    std::printf("%s E=%g MeV: %zu library rows (%s), %.1f %% start > 5 mm off the real vertex -> %s\n",
+                species.c_str(), energy, sel.size(), used.c_str(), 100.0 * kinked / sel.size(), out.c_str());
     return 0;
 }

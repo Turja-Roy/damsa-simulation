@@ -176,8 +176,9 @@ inline DamsaDetectorMessenger::DamsaDetectorMessenger(DamsaDetectorConstruction*
     fSetGunMaxSlopeCmd->AvailableForStates(G4State_PreInit, G4State_Idle);
 
     fSetGunOriginTableCmd = new G4UIcmdWithAString("/damsa/setGunOriginTable", this);
-    fSetGunOriginTableCmd->SetGuidance("Level A: per-event start z from a z_lo_mm,z_hi_mm,weight CSV (damsa_gun_origin),");
-    fSetGunOriginTableCmd->SetGuidance("on the axis, aimed into the face (setGunSpread / setGunMaxSlope). \"\" = off.");
+    fSetGunOriginTableCmd->SetGuidance("Level A: per-event start from a CSV. x_mm,y_mm,z_mm,ux,uy,uz,t_ns,weight");
+    fSetGunOriginTableCmd->SetGuidance("(damsa_gun_origin): MC phase space. z_lo_mm,z_hi_mm,weight: on the axis,");
+    fSetGunOriginTableCmd->SetGuidance("aimed into the face (setGunSpread / setGunMaxSlope). \"\" = off.");
     fSetGunOriginTableCmd->SetParameterName("Path", false);
     fSetGunOriginTableCmd->AvailableForStates(G4State_PreInit, G4State_Idle);
 }

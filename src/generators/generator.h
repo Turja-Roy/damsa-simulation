@@ -27,10 +27,14 @@ public:
 
 private:
     G4ThreeVector SampleBeamSpot() const;   // beam origin, optional transverse spread
-    void LoadOriginTable();                 // gGunOriginTable -> fOriginZlo/Zhi/Cdf
+    void LoadOriginTable();                 // gGunOriginTable -> fOrigin*
 
+    // Origin table: either MC phase space (rows of start point, direction, time:
+    // fOriginRows) or a z-only scan table (z bins, fOriginZlo/Zhi). fOriginCdf = cumulative weight.
+    struct OriginRow { G4ThreeVector pos, dir; G4double t; };
     std::string fOriginPath;                // table currently loaded
-    std::vector<double> fOriginZlo, fOriginZhi, fOriginCdf;   // mm, cumulative weight
+    std::vector<OriginRow> fOriginRows;
+    std::vector<double> fOriginZlo, fOriginZhi, fOriginCdf;
 
     G4ParticleGun* fParticleGun;
     G4double fCurrentEnergy;
@@ -70,13 +74,31 @@ void DamsaPrimaryGenerator::GeneratePrimaries(G4Event* anEvent) {
     if (!DamsaConfig::gPulsedBeam) {
         DamsaConfig::gElectronsFired += 1;
         if (!DamsaConfig::gGunOriginTable.empty()) {
-            // MC origin: z0 from the table (library vertices inside the W start at its exit face),
-            // on the axis, aimed uniform on the face within the slope cap. t0 = light time from the
-            // target exit, so the calo sees the real time of flight.
             if (fOriginPath != DamsaConfig::gGunOriginTable) LoadOriginTable();
             const std::size_t k = std::lower_bound(fOriginCdf.begin(), fOriginCdf.end(),
                                                    G4UniformRand() * fOriginCdf.back()) - fOriginCdf.begin();
             const G4double zExit = DamsaConfig::gTargetExitZ_mm * mm;
+            if (!fOriginRows.empty()) {
+                // MC phase space: a library particle's birth point, its line to where it really hit
+                // the face, its birth time; only the energy is the template's. Born inside the W:
+                // moved along that line to the exit face, plus the flight time at the template speed.
+                OriginRow r = fOriginRows[k];
+                const G4double zMin = zExit + 1. * um;
+                if (r.pos.z() < zMin) {
+                    const G4double ds = (zMin - r.pos.z()) / r.dir.z();
+                    const G4double m = fParticleGun->GetParticleDefinition()->GetPDGMass();
+                    const G4double T = fParticleGun->GetParticleEnergy();
+                    r.pos += ds * r.dir;
+                    r.t += ds / (std::sqrt(T * (T + 2. * m)) / (T + m) * c_light);
+                }
+                fParticleGun->SetParticlePosition(r.pos);
+                fParticleGun->SetParticleMomentumDirection(r.dir);
+                fParticleGun->SetParticleTime(r.t);
+                fParticleGun->GeneratePrimaryVertex(anEvent);
+                return;
+            }
+            // z scan (jobs/10_zscan): z0 from the table, on the axis, aimed uniform on the face
+            // within the slope cap. t0 = light time from the target exit.
             const G4double z0 = std::max(zExit + 1. * um,
                                          (fOriginZlo[k] + G4UniformRand() * (fOriginZhi[k] - fOriginZlo[k])) * mm);
             const G4double L = DamsaConfig::gGunAimZ_mm * mm - z0;
@@ -156,14 +178,22 @@ void DamsaPrimaryGenerator::GeneratePrimaries(G4Event* anEvent) {
 
 void DamsaPrimaryGenerator::LoadOriginTable() {
     fOriginPath = DamsaConfig::gGunOriginTable;
-    fOriginZlo.clear(); fOriginZhi.clear(); fOriginCdf.clear();
+    fOriginRows.clear(); fOriginZlo.clear(); fOriginZhi.clear(); fOriginCdf.clear();
     try {
         const auto t = damsa::io::ReadCsv(fOriginPath);
+        const bool phaseSpace = t.has("ux");
         double sum = 0.;
         for (std::size_t r = 0; r < t.size(); ++r) {
             if (t.get(r, "weight") <= 0.) continue;
-            fOriginZlo.push_back(t.get(r, "z_lo_mm"));
-            fOriginZhi.push_back(t.get(r, "z_hi_mm"));
+            if (phaseSpace) {
+                const G4ThreeVector dir(t.get(r, "ux"), t.get(r, "uy"), t.get(r, "uz"));
+                if (dir.z() <= 0.) continue;
+                fOriginRows.push_back({G4ThreeVector(t.get(r, "x_mm"), t.get(r, "y_mm"), t.get(r, "z_mm")) * mm,
+                                       dir.unit(), t.get(r, "t_ns") * ns});
+            } else {
+                fOriginZlo.push_back(t.get(r, "z_lo_mm"));
+                fOriginZhi.push_back(t.get(r, "z_hi_mm"));
+            }
             fOriginCdf.push_back(sum += t.get(r, "weight"));
         }
     } catch (const std::exception& e) {
@@ -172,7 +202,8 @@ void DamsaPrimaryGenerator::LoadOriginTable() {
     if (fOriginCdf.empty())
         G4Exception("DamsaPrimaryGenerator::LoadOriginTable", "OriginTable", FatalException,
                     ("no rows with weight > 0 in " + fOriginPath).c_str());
-    G4cout << "[Generator] origin table " << fOriginPath << ": " << fOriginCdf.size() << " bins" << G4endl;
+    G4cout << "[Generator] origin table " << fOriginPath << ": " << fOriginCdf.size()
+           << (fOriginRows.empty() ? " z bins" : " phase-space rows") << G4endl;
 }
 
 void DamsaPrimaryGenerator::SetBeamEnergy(G4double energy) {

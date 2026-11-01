@@ -116,9 +116,12 @@ inline double     gBeamSpotSigma_mm = 0.0;     // transverse Gaussian beam spot 
 inline double     gGunSpreadXY_mm = 0.0;
 inline double     gGunMaxSlope    = 0.0;
 inline double     gGunAimZ_mm     = 20.1;      // CsI front face; Construct() sets it from the geometry
-// MC origin for the templates (tools/damsa_gun_origin.cpp): CSV of z_lo_mm,z_hi_mm,weight.
-// Set = each event starts on the axis at a z drawn from it (clamped to the target exit),
-// aims uniform within +-gGunSpreadXY_mm on the face, |slope| <= gGunMaxSlope. "" = off.
+// Template gun origin table, "" = off. Two forms:
+//  x_mm,y_mm,z_mm,ux,uy,uz,t_ns,weight (tools/damsa_gun_origin.cpp): MC phase space, each
+//    event fires along one library particle's line from its birth point (W-born: from the
+//    target exit face); gGunSpreadXY_mm / gGunMaxSlope do not apply.
+//  z_lo_mm,z_hi_mm,weight (jobs/10_zscan): start on the axis at a z drawn from it (clamped to
+//    the target exit), aim uniform within +-gGunSpreadXY_mm on the face, |slope| <= gGunMaxSlope.
 inline std::string gGunOriginTable = "";
 inline double     gTargetExitZ_mm = -400.0;    // set by Construct()
 inline int        gMaxDirectElectrons = 10000; // guard: above this, use overlay (§3.3 Strat 2)
