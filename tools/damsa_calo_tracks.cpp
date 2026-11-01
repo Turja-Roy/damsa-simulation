@@ -85,8 +85,8 @@ const char* kHad = "#4a3aa7";
 // (odd layers), bottom = y view (even layers), so in each panel the other view's
 // layers are empty columns. Upstream of the calo (Display-Upstream plan):
 //   truth   -- every face particle (>= 1 MeV, 1-3 per event) as a straight line from its creation
-//              vertex (the magnet is off), a marker per vertex, and a label where a
-//              vertex sends >= 2 of them (the decay or process);
+//              vertex (the magnet is off), a marker per vertex labelled with the true
+//              species leaving it, plus the decay or process where it sends >= 2;
 //   reco    -- photon-ID lines extrapolated back to the target, and a star with
 //              m_gg [MeV] where each pair of fiducial photons comes closest.
 // The transverse axis is the calo face (+-6 cm): the VDC wall (r = 10 cm) is
@@ -155,13 +155,27 @@ void Display(int evt, const std::vector<double>& E, const std::vector<calo::Phot
         } else                { l->SetLineColor(ch); l->SetLineWidth(3); l->SetLineStyle(1); }   // mu, pi, p, ...
     };
     // Truth vertices: particles sharing parent and vertex (a decay, a conversion pair).
-    struct Vtx { double x, y, z; int n, proc; };
+    struct Vtx { double x, y, z; int n, proc; std::vector<int> pdg; };
     std::vector<Vtx> vtx;
     for (const auto& t : tr) {
         auto it = std::find_if(vtx.begin(), vtx.end(), [&](const Vtx& w) {
             return std::abs(w.x - t.vx) < 1e-3 && std::abs(w.y - t.vy) < 1e-3 && std::abs(w.z - t.vz) < 1e-3; });
-        if (it == vtx.end()) vtx.push_back({t.vx, t.vy, t.vz, 1, t.proc}); else ++it->n;
+        if (it == vtx.end()) vtx.push_back({t.vx, t.vy, t.vz, 1, t.proc, {t.pdg}});
+        else { ++it->n; it->pdg.push_back(t.pdg); }
     }
+    auto species = [](int pdg) -> std::string {
+        switch (pdg) {
+            case 22:    return "#gamma";
+            case 11:    return "e^{-}";     case -11:   return "e^{+}";
+            case 13:    return "#mu^{-}";   case -13:   return "#mu^{+}";
+            case 211:   return "#pi^{+}";   case -211:  return "#pi^{-}";   case 111: return "#pi^{0}";
+            case 321:   return "K^{+}";     case -321:  return "K^{-}";
+            case 130:   return "K^{0}_{L}"; case 310:   return "K^{0}_{S}";
+            case 2112:  return "n";         case -2112: return "#bar{n}";
+            case 2212:  return "p";         case -2212: return "#bar{p}";
+            default:    return std::to_string(pdg);
+        }
+    };
     auto procLabel = [&](int proc) -> std::string {
         switch (proc) {
             case io::Proc::Primary: return primLabel;
@@ -271,8 +285,13 @@ void Display(int evt, const std::vector<double>& E, const std::vector<calo::Phot
                     styleTruth(L, t.pdg);
         for (const auto& w : vtx) {
             const auto [d, u] = mark(D(w.z), (v == 0 ? w.x : w.y) / 10.0, 33, 27, ink, 1.6);
-            if (w.n < 2) continue;
-            auto* T = new TLatex(d + 0.4, u + (u > 0 ? -0.35 : 0.35), procLabel(w.proc).c_str());
+            // True species leaving the vertex; the process too when it sends >= 2 of them.
+            std::vector<int> pdgs = w.pdg;
+            std::sort(pdgs.begin(), pdgs.end());
+            std::string text;
+            for (int q : pdgs) text += species(q);
+            if (w.n >= 2) text += " (" + procLabel(w.proc) + ")";
+            auto* T = new TLatex(d + 0.4, u + (u > 0 ? -0.35 : 0.35), text.c_str());
             T->SetTextSize(0.04); T->SetTextColor(ink); T->SetTextAlign(u > 0 ? 13 : 11);
             T->Draw(); keep.push_back(T);
         }
