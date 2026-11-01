@@ -9,16 +9,16 @@
 #SBATCH -e logs/templates_%j.err
 #
 # Single-particle templates for the photon ID (Calo-Reco-Explained §2.14):
-# gamma, e-, pi+, p, n at several energies, each started where that species is
-# born in the beam MC: damsa_gun_origin turns the library truth vertices of the
-# particles reaching the calo face (output/calo_face_particles.root, from 02/03)
-# into a z table per species and energy; the generator starts each event on the
-# axis at a z from it (target-born ones at the target exit face), so templates
-# cross the end caps, Si and air a real particle crosses, with its real time of
-# flight. Uses the standard Geant4 /gun commands of the beam generator (one
-# particle per event). With SPREAD=1 (default) each event aims at a point uniform
-# over the CsI face (+-60 mm), slopes capped at 0.3 (Direction-Templates plan T1);
-# SPREAD=0 = along the axis.
+# gamma, e-, pi+, p, n at several energies, each fired the way that species
+# reaches the calo in the beam MC: damsa_gun_origin takes the library particles
+# of that species hitting the calo face (output/calo_face_particles.root, from
+# 02/03; energy window around E when populated) and the generator fires each
+# event along one of them: from its birth point (tungsten-born: from where its
+# line leaves the target exit face) to where it really hit the face, starting at
+# its birth time. So the exit x-y spread, the material crossed (end caps, Si,
+# air), the incidence point and angle, and the time of flight are the MC's; only
+# the energy is the template's. Uses the standard Geant4 /gun commands of the
+# beam generator (one particle per event).
 #   sbatch --dependency=afterok:<build_id> jobs/09_templates.sbatch
 #
 # Ends by writing output/pid_table.csv (species probabilities, Edge-HadronID-ALP
@@ -50,10 +50,6 @@ for p in "${PARTICLES[@]}"; do
             echo "/gun/particle $p"
             echo "/gun/energy $E MeV"
             echo "/damsa/setGunOriginTable $origin"
-            if [[ "${SPREAD:-1}" == 1 ]]; then
-                echo "/damsa/setGunSpread 60 mm"
-                echo "/damsa/setGunMaxSlope 0.3"
-            fi
             echo "/run/beamOn $N"
         } > "$mac"
         ./build/damsa "$mac" > "logs/templates_${tag}.log" 2>&1
