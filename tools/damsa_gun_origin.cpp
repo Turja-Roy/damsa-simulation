@@ -5,10 +5,12 @@
 // and its creation time; the template fires along that line with its own energy.
 // Starts inside the tungsten are kept as they are: the generator (which knows
 // the geometry) moves them along the line to the target exit face. So the face
-// hit point, incidence angle and exit x-y spread are the MC's. ponytail: a
-// particle that scattered between birth and face gets a straight path upstream
-// of the face (its start is off its real vertex); the printed fraction of rows
-// whose start misses the real vertex by > 5 mm says how often.
+// hit point, incidence angle and exit x-y spread are the MC's. A particle that
+// scattered between birth and face (back-projected line misses its real vertex
+// by > 5 mm, mostly e+-) instead starts at its real vertex aimed at its real face
+// hit, and Geant4 redoes the scattering. Back-projecting those put starts up to
+// 450 mm off axis, outside the world, which crashes the navigator.
+// ponytail: chord = mean direction, not the birth direction (the library has none).
 //
 //   ./build/damsa_gun_origin --library output/calo_face_particles.root --species neutron \
 //       --energy-MeV 100 --out output/gun_origin_neutron_E100.csv
@@ -76,13 +78,20 @@ int main(int argc, char** argv)
     std::size_t kinked = 0;
     for (const auto* r : sel) {
         const double p = std::sqrt(r->px * r->px + r->py * r->py + r->pz * r->pz);
-        const double ux = r->px / p, uy = r->py / p, uz = r->pz / p, s = (r->z_mm - r->vz_mm) / uz;
-        const double x0 = r->x_mm - s * ux, y0 = r->y_mm - s * uy;
-        if (std::hypot(x0 - r->vx_mm, y0 - r->vy_mm) > 5) ++kinked;
+        double ux = r->px / p, uy = r->py / p, uz = r->pz / p;
+        const double s = (r->z_mm - r->vz_mm) / uz;
+        double x0 = r->x_mm - s * ux, y0 = r->y_mm - s * uy;
+        if (std::hypot(x0 - r->vx_mm, y0 - r->vy_mm) > 5) {   // scattered: chord from the real vertex
+            ++kinked;
+            x0 = r->vx_mm; y0 = r->vy_mm;
+            const double dx = r->x_mm - x0, dy = r->y_mm - y0, dz = r->z_mm - r->vz_mm;
+            const double d = std::sqrt(dx * dx + dy * dy + dz * dz);
+            ux = dx / d; uy = dy / d; uz = dz / d;
+        }
         f << x0 << "," << y0 << "," << r->vz_mm << "," << ux << "," << uy << "," << uz << ","
           << r->vt_ns << "," << r->weight << "\n";
     }
-    std::printf("%s E=%g MeV: %zu library rows (%s), %.1f %% start > 5 mm off the real vertex -> %s\n",
+    std::printf("%s E=%g MeV: %zu library rows (%s), %.1f %% scattered (chord from real vertex) -> %s\n",
                 species.c_str(), energy, sel.size(), used.c_str(), 100.0 * kinked / sel.size(), out.c_str());
     return 0;
 }
