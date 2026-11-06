@@ -16,7 +16,8 @@
 #
 # It fires one Geant4 event per row, and 4M rows is far too many for a 12 h job,
 # so subsample first. SUBSAMPLE preserves total events/day in expectation via
-# Horvitz-Thompson reweighting -- do not just `head` the file.
+# Horvitz-Thompson reweighting -- do not just `head` the file. It also shuffles the rows:
+# the source is sorted by ALP energy, and trajectories exist only for the first events fired.
 #
 # damsa_subsample reads and writes TTree directly.
 

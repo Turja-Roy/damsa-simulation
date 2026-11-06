@@ -73,9 +73,10 @@ int main(int argc, char** argv)
         std::uniform_int_distribution<std::size_t> pick(i, nonzero.size() - 1);
         std::swap(nonzero[i], nonzero[pick(rng)]);
     }
+    // Left in shuffled order on purpose: damsa_alp_inject fires row i as event i, and the input
+    // is sorted by ALP energy, so anything limited to the first events (trajectories, displays)
+    // would otherwise only ever see E_a ~ m_a.
     nonzero.resize(nKeep);
-    // Keep the original file order, so the output stays comparable to the input.
-    std::sort(nonzero.begin(), nonzero.end());
 
     // ── Write ───────────────────────────────────────────────────────────────
     double wOut = 0;

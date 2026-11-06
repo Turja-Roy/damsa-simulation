@@ -1,6 +1,6 @@
 // Figures for the depth-aware calo reconstruction (Calo-Reco-Explained §2.13).
 //
-//   ./build/damsa_track_plots --dir output --tag pi0_E1000 \
+//   ./build/damsa_track_plots --dir output --tag pi0_E1000 [--weighted] \
 //        [--grid "old summed=output/reco_grid_lesa_summed.csv,depth=output/reco_grid_lesa.csv"] \
 //        [--out plots/tracks]
 //   ./build/damsa_track_plots --dir output --templates gamma,e-,pi+,proton,neutron \
@@ -27,6 +27,9 @@
 //   grid_fake20_vs_mu, grid_eff_vs_mu
 // Error bars: Poisson per histogram bin, binomial on fractions, bootstrap
 // (200 resamples) on quantiles.
+// --weighted redraws rows in proportion to their weight, written as <name>_<tag>_weighted:
+// an ALP sample is flat in energy, the signal is not.
+// ponytail: copies count as independent, so error bars understate; stdout has the effective N.
 
 #include "damsa_io.h"
 #include "calo_reco.h"
@@ -161,7 +164,7 @@ int main(int argc, char** argv)
 {
     std::string dir = "output", tag, grid, out = "plots/tracks", tmpls, energies, pidTable, library;
     int nTmpl = 2000;
-    bool pidEval = false;
+    bool pidEval = false, weighted = false;
     for (int i = 1; i < argc; ++i) {
         const std::string s = argv[i];
         auto nx = [&]() { return std::string(argv[++i]); };
@@ -175,7 +178,8 @@ int main(int argc, char** argv)
         else if (s == "--pid-table") pidTable = nx();
         else if (s == "--library")   library = nx();
         else if (s == "--pid-eval")  pidEval = true;
-        else { std::fprintf(stderr, "usage: %s --dir DIR [--tag TAG] [--grid label=path,...] "
+        else if (s == "--weighted")  weighted = true;
+        else { std::fprintf(stderr, "usage: %s --dir DIR [--tag TAG [--weighted]] [--grid label=path,...] "
                                     "[--templates p,... --energies E,... --n-tmpl N [--pid-table PATH [--library CSV]] [--pid-eval]] [--out DIR]\n", argv[0]); return 1; }
     }
     std::filesystem::create_directories(out);
@@ -189,9 +193,24 @@ int main(int argc, char** argv)
         // Same table twice: k = 0 every object, k = 1 photon ID only. Pairs are
         // built from photon-ID objects already, so the vertex plot has one series.
         const std::vector<std::string> labels = {"all objects", "photon ID"};
-        const auto t0 = io::ReadCsv(dir + "/tracks_" + tag + ".csv");
+        auto load = [&](const std::string& path) {
+            auto t = io::ReadCsv(path);
+            if (!weighted || t.size() == 0) return t;
+            if (!t.has("weight")) throw std::runtime_error(path + " has no weight column");
+            std::vector<double> w;
+            double sum = 0, sum2 = 0;
+            for (std::size_t r = 0; r < t.size(); ++r) { w.push_back(t.get(r, "weight")); sum += w.back(); sum2 += w.back() * w.back(); }
+            std::printf("%s: %zu rows, effective N = %.0f\n", path.c_str(), t.size(), sum * sum / sum2);
+            std::discrete_distribution<std::size_t> pick(w.begin(), w.end());
+            auto rows = t.rows;
+            for (auto& x : rows) x = t.rows[pick(rng)];
+            t.rows = std::move(rows);
+            return t;
+        };
+        const auto t0 = load(dir + "/tracks_" + tag + ".csv");
         const std::vector<io::CsvTable> tr = {t0, t0};
-        const auto pair = io::ReadCsv(dir + "/track_pairs_" + tag + ".csv");
+        const auto pair = load(dir + "/track_pairs_" + tag + ".csv");
+        if (weighted) tag += "_weighted";
         auto sel = [&](int k, std::size_t r) { return tr[k].get(r, "matched") > 0.5 && (k == 0 || tr[k].get(r, "photon") > 0.5); };
         std::vector<std::vector<double>> dth(2);
         for (int k = 0; k < 2; ++k)

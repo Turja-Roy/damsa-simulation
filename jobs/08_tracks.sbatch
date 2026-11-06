@@ -14,7 +14,8 @@
 #   2. damsa_calo_tracks on each sample (Si veto + truth trajectories);
 #   3. the same on the beam library (single electrons, no overlay);
 #   4. the ALP samples of 06_inject, one per mass, if their calo hits exist
-#      (Edge-HadronID-ALP plan C1; 06_inject with SUBSAMPLE=20000 is enough);
+#      (Edge-HadronID-ALP plan C1; 06_inject with SUBSAMPLE=20000 is enough), and
+#      their plots both as sampled (flat in energy) and weighted (the signal);
 #   5. damsa_track_plots per sample, all objects vs photon ID (+ the grid
 #      comparison if the 07_reco variants exist: reco_grid_lesa{,_summed}.csv).
 # With output/pid_table.csv (09_templates) every object gets species probabilities.
@@ -35,7 +36,7 @@ for s in "${SAMPLES[@]}"; do
     ./build/damsa_alp_inject "output/gun_${tag}.root" macros/run_alp.mac > "logs/tracks_inject_${tag}.log" 2>&1
     g="output/gun_${tag}"
     ./build/damsa_calo_tracks --hits "${g}_calo_hits.root" --truth "${g}_calo_face_particles.root" \
-        --tracker "${g}_tracker_hits.root" --traj "${g}_calo_traj.root" --tag "$tag" ${PID:+--pid "$PID"}
+        --tracker "${g}_tracker_hits.root" --traj "${g}_calo_traj.root" --decays "${g}.root" --tag "$tag" ${PID:+--pid "$PID"}
 done
 
 # Beam library, single electrons (truth photons >= 10 MeV for the efficiency).
@@ -49,8 +50,10 @@ for m in 1 5 10 20 50 100 200 500; do
     a="output/alp_decay_photons_ma${m}MeV_sub"
     [[ -s "${a}_calo_hits.root" ]] || { echo "skip ALP ma=${m} MeV: no ${a}_calo_hits.root (rerun 06_inject)"; continue; }
     ./build/damsa_calo_tracks --hits "${a}_calo_hits.root" --truth "${a}_calo_face_particles.root" \
-        --tracker "${a}_tracker_hits.root" --traj "${a}_calo_traj.root" --tag "alp_ma${m}" ${PID:+--pid "$PID"}
+        --tracker "${a}_tracker_hits.root" --traj "${a}_calo_traj.root" --decays "${a}.root" --tag "alp_ma${m}" ${PID:+--pid "$PID"}
     ALPS+=("alp_ma${m}")
+    # The sample is flat in ALP energy; these plots redraw it as the signal is, by weight.
+    ./build/damsa_track_plots --dir output --tag "alp_ma${m}" --weighted --out plots/tracks
 done
 
 GRID=""
