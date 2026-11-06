@@ -127,15 +127,130 @@ int main()
         ApplyVeto(a3, slanted, rp);
         assert(a3[0].charged && std::abs(a3[0].siTx - 0.01) < 1e-9 && std::abs(a3[0].siTy + 0.02) < 1e-9);
     }
-    {   // Satellite: a 5 % shower starting 7 layers after a big one, 10 cm away: EM on its own
-        // (start 8 is within the cut at 75 MeV), dropped as the big shower's offspring
-        std::vector<double> Ec(528, 0.0), Tc(528, 1.0);
+    {   // Fragment: a 5 % shower starting 7 layers after a big one, 10 cm away: EM on its own
+        // (start 8 is within the cut at 75 MeV), but the big shower's offspring. It is no object
+        // (no line in the displays); its energy joins the parent.
+        std::vector<double> Ec(528, 0.0), Tc(528, 1.0), E0(528, 0.0);
         addShowerProfile(Ec, -35, -35, 1);
+        addShowerProfile(E0, -35, -35, 1);
         addShowerProfile(Ec, 35, 35, 8, 6);
+        const auto ph = ReconstructDepth(Ec, Tc, g, rp), ph0 = ReconstructDepth(E0, Tc, g, rp);
+        assert(ph.size() == 1 && ph[0].photon);
+        double total = 0;
+        for (double e : Ec) total += e;
+        assert(std::abs(ph[0].Eraw - total) < 0.01 * total && ph0[0].Eraw < 0.97 * total);   // it carries 5 %
+        assert(std::abs(ph[0].E / ph[0].Eraw - ph0[0].E / ph0[0].Eraw) < 1e-3);   // mutation check: same leak correction on all of it
+        // Same shower 5 layers later, not a fragment if it carries 30 %: two objects.
+        std::vector<double> E2(528, 0.0);
+        addShowerProfile(E2, -35, -35, 1);
+        addShowerProfile(E2, 35, 35, 6, 40);
+        assert(ReconstructDepth(E2, Tc, g, rp).size() == 2);
+    }
+    // MIP: long track with one delta-ray layer, which max / median would call a shower.
+    auto addMip = [&](std::vector<double>& Ec, int strip, int nLay) {
+        for (int l = 0; l < nLay; ++l) Ec[l * 12 + strip] = 5.6 * (1 + 0.1 * ((l * 7) % 5 - 2) / 2.0);
+    };
+    {
+        std::vector<double> Ec(528, 0.0), Tc(528, 1.0);
+        addMip(Ec, 6, 44);
+        Ec[20 * 12 + 6] = 40;                       // peak / median ~ 7: the old test failed this
         auto ph = ReconstructDepth(Ec, Tc, g, rp);
-        int nPh = 0;
-        for (const auto& q : ph) nPh += q.photon;
-        assert(ph.size() == 2 && nPh == 1);
+        assert(ph.size() == 1 && ph[0].cls == kMIP && !ph[0].photon && ph[0].fracMip > 0.9);
+    }
+    {   // 6 layers leaving through the side count as a MIP; the same 6 layers mid-calo do not.
+        std::vector<double> Es(528, 0.0), Em(528, 0.0), Tc(528, 1.0);
+        addMip(Es, 11, 6);
+        addMip(Em, 6, 6);
+        auto a = ReconstructDepth(Es, Tc, g, rp), b = ReconstructDepth(Em, Tc, g, rp);
+        assert(a.size() == 1 && a[0].cls == kMIP && b.size() == 1 && b[0].cls != kMIP);
+    }
+    // Si stubs and conversions. A photon-like object on the axis at (5, -5).
+    {
+        std::vector<double> Ec(528, 0.0), Tc(528, 1.0);
+        addShowerProfile(Ec, 5, -5, 1);
+        const auto ph = ReconstructDepth(Ec, Tc, g, rp);
+        auto at = [&](int i, double dx = 0) {
+            const double z = TrackerZ(i, rp) - rp.frontZ;
+            return TrackerHit{i, ph[0].x + ph[0].tx * z + dx, ph[0].y + ph[0].ty * z};
+        };
+        auto a = ph;   // two planes on the line: charged through a stub
+        ApplyStubs(a, {at(4), at(5)}, rp);
+        assert(a[0].charged && a[0].stub && !a[0].photon && a[0].vetoPlanes == 2 && a[0].siFirstPlane == 4);
+        auto b = ph;   // one plane is not enough
+        ApplyStubs(b, {at(5)}, rp);
+        assert(!b[0].charged && b[0].photon);
+        auto c = ph;   // two hits in both planes: an e+e- pair stays a photon
+        ApplyStubs(c, {at(4), at(4, 2), at(5), at(5, 2)}, rp);
+        assert(c[0].converted && !c[0].charged && c[0].photon);
+        auto d = ph;   // far off the line: nothing
+        ApplyStubs(d, {at(4, 40), at(5, 40)}, rp);
+        assert(!d[0].stub && d[0].photon);
+
+        std::vector<TrackerHit> pair, single;   // 6 planes, then two tracks 2 mm apart: conversion
+        for (int i = 0; i < 6; ++i) {           // Si slope 10 mrad off the calo line, to see which one wins
+            const double dx = 0.01 * (TrackerZ(i, rp) - rp.frontZ);
+            single.push_back(at(i, dx)); pair.push_back(at(i, dx)); pair.push_back(at(i, dx + 2));
+        }
+        const auto tp = FindSiTracks(pair, rp), ts = FindSiTracks(single, rp);
+        assert(tp.size() == 2 && tp[0].conv && tp[1].conv && ts.size() == 1 && !ts[0].conv);
+        auto e = ph, f = ph, k = ph;
+        ApplyVeto(e, tp, rp);
+        assert(e[0].converted && !e[0].charged && e[0].photon && std::abs(e[0].tx - (ph[0].tx + 0.01)) < 1e-6);
+        ApplyVeto(f, ts, rp);
+        assert(f[0].charged && !f[0].converted && !f[0].photon);
+        ApplyVeto(k, {tp[0], ts[0]}, rp);       // a conversion beside a charged track: charged wins, either order
+        assert(k[0].charged && !k[0].converted && !k[0].photon);
+    }
+    // A photon leaves nothing before it converts. Pairs from plane 3 on with planes 0-2 empty: conversion.
+    // The same pairs with lone hits in planes 0-2: a charged particle was already there.
+    {
+        const RecoParams& r = rp;
+        std::vector<TrackerHit> late, lone;
+        for (int i = 3; i < 6; ++i) { late.push_back({i, 5, 5}); late.push_back({i, 7, 5}); }
+        lone = late;
+        for (int i = 0; i < 3; ++i) lone.push_back({i, 5, 5});
+        assert(TwoHitPlanes(late, 5, 5, 0, 0, r.convRoad, r) == 3);
+        assert(TwoHitPlanes(lone, 5, 5, 0, 0, r.convRoad, r) == 0);   // mutation check: counting planes alone gives 3
+        const auto tl = FindSiTracks(lone, r);
+        assert(tl.size() == 1 && !tl[0].conv);
+    }
+    // Charged path: MIP in x bending by 0.2 rad at 20 cm depth; the filter follows the bend, a
+    // straight line through it cannot. Ends: back, side, shower onset, not one delta ray.
+    {
+        std::vector<double> Ec(528, 0.0), Tc(528, 1.0);
+        auto xTrue = [&](int l) { const double d = LayerZ(l, rp) - rp.frontZ; return d < 200 ? 0.0 : 0.2 * (d - 200); };
+        for (int l = 0; l < 44; ++l) {
+            const double u = l % 2 ? xTrue(l) : 0.0;
+            Ec[l * 12 + std::clamp(static_cast<int>(std::floor((u + 60) / 10)), 0, 11)] = 5.6;
+        }
+        const auto cl = LayerClusters(Ec, Tc, g, rp);
+        const auto c = FollowCharged(cl, 44, 0, 0, 0, 0, rp.pathSeedPos, rp.pathSeedSlope, g, rp);
+        assert(c.end == kEndBack && c.onset < 0 && c.last == 43);
+        for (const auto& pt : c.view[1]) assert(std::abs(pt.u - xTrue(pt.layer)) < 8);   // bars are 10 mm wide
+        assert(std::abs(c.view[1].back().u - xTrue(43)) < 8 && c.view[1].back().u > 30);  // mutation check: a straight seed line stays at 0
+
+        std::vector<double> Es(528, 0.0);       // straight, a delta ray over 2 layers, then a shower from layer 30
+        for (int l = 0; l < 44; ++l) Es[l * 12 + 6] = l >= 30 ? 60 : 5.6;
+        Es[10 * 12 + 6] = Es[11 * 12 + 6] = 40;
+        const auto s = FollowCharged(LayerClusters(Es, Tc, g, rp), 44, 5, 5, 0, 0, rp.pathSeedPos, rp.pathSeedSlope, g, rp);
+        assert(s.end == kEndShower && s.onset == 30);
+
+        std::vector<double> Ex(528, 0.0);       // aimed out: leaves through the x side
+        for (int l = 0; l < 44; ++l) {
+            const double d = LayerZ(l, rp) - rp.frontZ, u = 40 + 0.2 * d;
+            if (std::abs(u) < 60) Ex[l * 12 + (l % 2 ? std::min(11, static_cast<int>((u + 60) / 10)) : 6)] = 5.6;
+        }
+        const auto x = FollowCharged(LayerClusters(Ex, Tc, g, rp), 44, 40, 5, 0.2, 0, rp.pathSeedPos, rp.pathSeedSlope, g, rp);
+        assert(x.end == kEndSide && x.last < 12);
+
+        std::vector<double> Eo(528, 0.0);       // stops in the outermost bar, aimed straight: still the side
+        for (int l = 0; l < 10; ++l) Eo[l * 12 + (l % 2 ? 11 : 6)] = 5.6;
+        const auto o = FollowCharged(LayerClusters(Eo, Tc, g, rp), 44, 55, 5, 0, 0, rp.pathSeedPos, rp.pathSeedSlope, g, rp);
+        assert(o.end == kEndSide);
+        std::vector<double> Ei(528, 0.0);       // the same stopping mid-calo: stops
+        for (int l = 0; l < 10; ++l) Ei[l * 12 + 6] = 5.6;
+        const auto i = FollowCharged(LayerClusters(Ei, Tc, g, rp), 44, 5, 5, 0, 0, rp.pathSeedPos, rp.pathSeedSlope, g, rp);
+        assert(i.end == kEndStop);
     }
 
     // Edge centroid: a 10 mm Gaussian centred on bar 10 (x = 45 mm, 1.5 bars from the side) loses

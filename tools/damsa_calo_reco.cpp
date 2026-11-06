@@ -184,6 +184,9 @@ int main(int argc, char** argv)
     if (a.reco != "depth" && a.reco != "summed") { std::fprintf(stderr, "Unknown --reco %s\n", a.reco.c_str()); return 1; }
     calo::RecoParams rp;
     rp.seed = a.seed;
+    // no conversions here. Without Si timing, random overlay hits fill the road, which
+    // would call any charged track a conversion and switch the veto off. LGAD timing would allow it.
+    rp.convMinPlanes = rp.nTrackers + 1;
     rp.fidMargin = a.reco == "depth" ? a.fidMargin : 0.0;   // the summed path has no shower axis
 
     int nCells = 0;

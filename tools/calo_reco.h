@@ -166,10 +166,18 @@ struct RecoParams {
     double satRadius = 106.0;     // mm = 3 R_M
     int    satStartGap = 3;
     double satEfrac = 0.15;
-    int    mipMinLayers = 8;      // a MIP crosses many layers ...
-    double mipMaxBars = 1.6;      // ... about one bar wide ...
-    double mipEmin = 2.0, mipEmax = 15.0;   // ... with ~5.6 MeV per 1 cm bar (median per layer) ...
-    double mipMaxPeak = 3.0;      // ... and no shower maximum (max / median per-layer energy)
+    double fragEfrac = 0.03;      // this far below a parent: fragment at any start depth. On the gamma
+                                  // templates and pi0/eta guns (2026-11-05) it costs 0.4 % of real photons.
+    // MIP: most lit layers hold a narrow deposit near 5.6 MeV per 1 cm of CsI. A fraction, not
+    // max / median per layer: on a long track some layer always has a Landau tail or a delta ray,
+    // which failed 47 % of long 1 GeV pions.
+    int    mipMinLayers = 8;
+    double mipLayerLo = 2.5, mipLayerHi = 12;   // MeV, the layer window
+    int    mipLayerBars = 2;
+    double mipMinFrac = 0.7;
+    int    mipMinSideExit = 5;    // layers, for a track leaving through the calo side (cannot reach 8).
+                                  // Scanned 3-8 on the templates (2026-11-05): 3 costs 3 % of 50 MeV photons,
+                                  // 5 under 1 % and keeps half the pion rejection.
 
     // Si charged-particle veto: tracker geometry (construction.cpp) and rule.
     int    nTrackers = 6;
@@ -180,6 +188,24 @@ struct RecoParams {
                                   // extrapolation are that particle or its spray, not photons
     int    minVetoPlanes = 4;     // a charged particle from upstream crosses all 6 planes; calo
                                   // backsplash hits mostly the last 2-3 (measured on 1 GeV photons)
+    // Si stub: a particle born among the planes, or leaving their side, crosses too few for a Si
+    // track. Hits on the calo line in >= minStubPlanes tag it. Measured on templates (truth-level
+    // hits, no pile-up): 45 % of missed 1 GeV e-, 70 % of missed pi+, 0.3 % of photons.
+    int    minStubPlanes = 2;
+    double stubRoad = 15;         // mm, per coordinate: the calo line is poorer than the Si line
+    // Conversion: e+ and e- leave two hits per plane close together; a lone e+- or hadron does not.
+    // ponytail: needs resolved hits, true of truth-level Si only. Merged hits need 2-MIP dE/dx.
+    double convRoad = 15;         // mm
+    int    convMinPlanes = 3;     // planes with >= 2 hits, Si track
+    int    convMinPlanesStub = 2; // the same, stub
+                                  // Called converted (2026-11-05): gamma 1 GeV 32 %, 5 GeV 39 %; 1 GeV e- 4 %, pi+ 1-5 GeV 3-5 %.
+    // Charged path through the calo: Kalman filter per view, seeded by the Si line.
+    double pathSeedPos = 1, pathSeedSlope = 0.005;     // mm, rad: Si seed
+    double pathCaloPos = 5, pathCaloSlope = 0.05;      // mm, rad: calo-only MIP seed
+    double pathMsPerStep = 0.02;  // rad, scattering per 2 cm of CsI (Highland: 12 mrad at 1 GeV, 45 at 300 MeV)
+    int    pathOnsetHard = 3;     // shower onset: a hard layer with this many more among the next 3. Against true
+                                  // primaries (pi, p, 2026-11-05): false onsets > 4 layers early fall from 14 to 2
+                                  // of ~50 going from 2 to 3; the interactions lost read "stops", which is honest.
 
     // Edges (Edge-HadronID-ALP plan A1, A3-A4). Lateral leak of a shower whose core
     // (axis at the shower-max layer) is d from a calo side: E / E_central = 1 - leakA exp(-d / leakLambda),
@@ -223,12 +249,17 @@ struct Photon3D {                    // a reconstructed calo object (photon cand
     double medLayerE = 0;            // median energy per lit layer [MeV]
     double layerEcv = 0;             // spread of per-layer energy (std / mean)
     double peakRatio = 0;            // max / median per-layer energy (shower max vs flat MIP)
+    double fracMip = 0;              // lit layers inside the MIP window and bar limit
+    double Eraw = 0;                 // E before the leak correction
     double meanBars = 0;             // mean bars lit per layer
     double widthEarly = 0, widthLate = 0;   // mean lateral RMS, first / second half of lit layers [mm]
     int cls = kEM;                   // ObjClass
     int vetoPlanes = 0;              // charged: Si planes on its track
-    bool charged = false;            // nearest object to a Si track's extrapolation
-    double siX = 0, siY = 0, siTx = 0, siTy = 0;   // charged: its Si track line (at the face)
+    bool charged = false;            // nearest object to a Si track's extrapolation, or stub on its line
+    bool stub = false;               // charged or converted through a Si stub (< minVetoPlanes)
+    bool converted = false;          // photon that converted upstream: e+e- in Si, direction from the Si line
+    int siFirstPlane = -1;           // charged / converted: most upstream plane on its Si line
+    double siX = 0, siY = 0, siTx = 0, siTy = 0;   // charged / converted: its Si line (at the face)
     bool vetoInfo = false;           // inside the tracker acceptance (entry or line at the first plane)
     bool photon = false;             // EM and not vetoed as charged
     double xCore = 0, yCore = 0;     // axis at the shower-max layer
@@ -419,16 +450,17 @@ inline std::vector<Track2D> FindTracks(const std::vector<LayerCluster>& cl, cons
 }
 
 // Photon ID on the per-layer profile (Calo-Reco-Explained §2.14):
-//   MIP track  -- many layers, ~1 bar wide, flat ~5.6 MeV per layer, no maximum
+//   MIP track  -- many layers mostly narrow and near 5.6 MeV per layer, or a few such
+//                layers on a line leaving through the calo side
 //                (mu, and pi/p crossing without a nuclear interaction);
 //   EM shower  -- starts early enough for its energy, and if it is a real shower its
 //                most energetic layer sits where t_max = ln(E/E_c) - 0.5 predicts;
 //   hadronic   -- everything else (deep or irregular deposits, e.g. n / pi / p interactions).
-inline int Classify(const Photon3D& o, const RecoParams& p)
+inline int Classify(const Photon3D& o, const Geometry& g, const RecoParams& p)
 {
-    if (o.nLit >= p.mipMinLayers && o.meanBars <= p.mipMaxBars && o.medLayerE >= p.mipEmin &&
-        o.medLayerE <= p.mipEmax && o.peakRatio <= p.mipMaxPeak)
-        return kMIP;
+    const double dEnd = (o.last + 2) * p.layerThick;   // one layer past the last, from the face
+    const bool sideExit = std::max(std::abs(o.x + o.tx * dEnd), std::abs(o.y + o.ty * dEnd)) >= g.caloXY_mm / 2 - g.pitch();
+    if (o.fracMip >= p.mipMinFrac && o.nLit >= (sideExit ? p.mipMinSideExit : p.mipMinLayers)) return kMIP;
     const bool shower = o.nLit >= p.minShowerClusters;
     const double maxStart = p.emMaxStartLayer + p.emStartPerDecade * std::max(0.0, std::log10(1000.0 / std::max(o.E, 1.0)));
     if (o.start <= maxStart && (!shower || std::abs(o.tmaxPull) <= p.emMaxTmaxPull)) return kEM;
@@ -444,16 +476,44 @@ inline double TrackerZ(int i, const RecoParams& p)
 
 struct TrackerHit { int plane; double x, y; };
 
-struct SiTrack { double x, y, tx, ty; int n; };   // straight line, position at the calo face
+struct SiTrack {                     // straight line, position at the calo face
+    double x, y, tx, ty;
+    int n;                           // planes on it
+    int firstPlane = 0;              // most upstream of them
+    bool conv = false;               // e+e- from a conversion
+};
+
+// Planes holding >= 2 hits within road of a line: the e+ and e- of a conversion. A photon leaves
+// nothing before it converts, so a lone hit upstream of the first pair means a charged particle
+// was already there (its delta rays or calo backsplash made the second hits): returns 0.
+inline int TwoHitPlanes(const std::vector<TrackerHit>& hits, double x, double y, double tx, double ty,
+                        double road, const RecoParams& p)
+{
+    int planes = 0;
+    bool any = false;
+    for (int i = 0; i < p.nTrackers; ++i) {
+        const double zi = TrackerZ(i, p) - p.frontZ;
+        int n = 0;
+        for (const auto& h : hits)
+            n += h.plane == i && std::abs(h.x - (x + tx * zi)) < road && std::abs(h.y - (y + ty * zi)) < road;
+        if (!any && n == 1) return 0;
+        any = any || n > 0;
+        planes += n >= 2;
+    }
+    return planes;
+}
 
 // Standalone Si tracking (no magnetic field in the geometry, so straight lines):
 // seed with one hit in the first half of the planes and one in the second, keep
 // the line if >= minVetoPlanes planes have a hit within siRoad, refit those hits
-// (least squares, x(z) and y(z)), and remove them from the pool.
+// (least squares, x(z) and y(z)), and remove them from the pool. left: the hits
+// on no track, for ApplyStubs.
 // ponytail: O(n^3) in hits per window; fine for single events and moderate mu,
 // replace by a road search per plane if Si occupancy gets large.
-inline std::vector<SiTrack> FindSiTracks(std::vector<TrackerHit> hits, const RecoParams& p)
+inline std::vector<SiTrack> FindSiTracks(std::vector<TrackerHit> hits, const RecoParams& p,
+                                         std::vector<TrackerHit>* left = nullptr)
 {
+    const std::vector<TrackerHit> all = hits;
     std::vector<SiTrack> out;
     auto zf = [&](int plane) { return TrackerZ(plane, p) - p.frontZ; };
     for (bool found = true; found;) {
@@ -480,16 +540,19 @@ inline std::vector<SiTrack> FindSiTracks(std::vector<TrackerHit> hits, const Rec
                 sz += z; szz += z * z; sx += hits[k].x; szx += z * hits[k].x; sy += hits[k].y; szy += z * hits[k].y;
             }
             const double den = n * szz - sz * sz;
-            SiTrack t;
+            SiTrack t{};
             t.tx = (n * szx - sz * sx) / den; t.x = (sx - t.tx * sz) / n;
             t.ty = (n * szy - sz * sy) / den; t.y = (sy - t.ty * sz) / n;
             t.n = static_cast<int>(on.size());
+            t.firstPlane = hits[on.front()].plane;
             out.push_back(t);
             std::sort(on.rbegin(), on.rend());
             for (auto k : on) hits.erase(hits.begin() + static_cast<long>(k));
             found = true;
         }
     }
+    for (auto& t : out) t.conv = TwoHitPlanes(all, t.x, t.y, t.tx, t.ty, p.convRoad, p) >= p.convMinPlanes;
+    if (left) *left = std::move(hits);
     return out;
 }
 
@@ -501,29 +564,84 @@ inline std::vector<SiTrack> FindSiTracks(std::vector<TrackerHit> hits, const Rec
 // centroid sat > 2 cm off. Calo backsplash lights mostly the last 2 planes, so
 // it does not make a track. Objects outside the 9.8 cm planes get
 // vetoInfo = false ("no information", not "neutral").
+// A conversion is a photon: its nearest object stays one (converted), takes the far
+// better Si direction, and masks nothing. Charged tracks go first, so a real charged
+// particle beside a conversion still wins.
 inline void ApplyVeto(std::vector<Photon3D>& objs, const std::vector<SiTrack>& tracks, const RecoParams& p)
 {
     const double z0 = TrackerZ(0, p) - p.frontZ;
     for (auto& o : objs)
         o.vetoInfo = (std::abs(o.x) <= p.trackerHalf && std::abs(o.y) <= p.trackerHalf) ||
                      (std::abs(o.x + o.tx * z0) <= p.trackerHalf && std::abs(o.y + o.ty * z0) <= p.trackerHalf);
-    for (const auto& t : tracks) {
+    auto nearest = [&](const SiTrack& t, bool mask) {
         Photon3D* near = nullptr;
         for (auto& o : objs) {
             const double d = std::hypot(o.x - t.x, o.y - t.y);
             if (d >= p.chargedMask) continue;
-            o.photon = false;
+            if (mask) o.photon = false;
             if (!near || d < std::hypot(near->x - t.x, near->y - t.y)) near = &o;
         }
-        if (!near) continue;
-        near->charged = true;
-        near->vetoPlanes = t.n;
-        near->siX = t.x; near->siY = t.y; near->siTx = t.tx; near->siTy = t.ty;
+        return near;
+    };
+    auto store = [](Photon3D* o, const SiTrack& t) {
+        o->vetoPlanes = t.n;
+        o->siFirstPlane = t.firstPlane;
+        o->siX = t.x; o->siY = t.y; o->siTx = t.tx; o->siTy = t.ty;
+    };
+    for (const auto& t : tracks) {
+        if (t.conv) continue;
+        if (Photon3D* o = nearest(t, true)) { o->charged = true; store(o, t); }
+    }
+    for (const auto& t : tracks) {
+        if (!t.conv) continue;
+        Photon3D* o = nearest(t, false);
+        if (!o || o->charged || o->converted) continue;
+        o->converted = true;
+        store(o, t);
+        o->x = t.x; o->y = t.y; o->tx = t.tx; o->ty = t.ty;
     }
 }
 inline void ApplyVeto(std::vector<Photon3D>& objs, const std::vector<TrackerHit>& hits, const RecoParams& p)
 {
     ApplyVeto(objs, FindSiTracks(hits, p), p);
+}
+
+// Si stubs, after ApplyVeto, on the hits left off its tracks. Objects it left alone with hits
+// on their calo line in >= minStubPlanes planes are charged, or converted if those planes hold
+// the two hits of an e+e-. The stub line comes from the hit nearest the calo line per plane.
+// ponytail: single events only. Without Si timing, random hits fill this road at high mu, so
+// damsa_calo_reco keeps the 4-plane veto; LGAD timing would allow it there.
+inline void ApplyStubs(std::vector<Photon3D>& objs, const std::vector<TrackerHit>& left, const RecoParams& p)
+{
+    for (auto& o : objs) {
+        if (o.charged || o.converted) continue;
+        double n = 0, sz = 0, szz = 0, sx = 0, szx = 0, sy = 0, szy = 0;
+        int first = -1;
+        for (int i = 0; i < p.nTrackers; ++i) {
+            const double z = TrackerZ(i, p) - p.frontZ, px = o.x + o.tx * z, py = o.y + o.ty * z;
+            const TrackerHit* best = nullptr;
+            for (const auto& h : left)
+                if (h.plane == i && std::abs(h.x - px) < p.stubRoad && std::abs(h.y - py) < p.stubRoad &&
+                    (!best || std::hypot(h.x - px, h.y - py) < std::hypot(best->x - px, best->y - py)))
+                    best = &h;
+            if (!best) continue;
+            if (first < 0) first = i;
+            n += 1; sz += z; szz += z * z; sx += best->x; szx += z * best->x; sy += best->y; szy += z * best->y;
+        }
+        if (n < p.minStubPlanes) continue;
+        const double den = n * szz - sz * sz;
+        o.stub = true;
+        o.vetoPlanes = static_cast<int>(n);
+        o.siFirstPlane = first;
+        o.siTx = (n * szx - sz * sx) / den; o.siX = (sx - o.siTx * sz) / n;
+        o.siTy = (n * szy - sz * sy) / den; o.siY = (sy - o.siTy * sz) / n;
+        if (TwoHitPlanes(left, o.x, o.y, o.tx, o.ty, p.convRoad, p) >= p.convMinPlanesStub) {
+            o.converted = true;
+        } else {
+            o.charged = true;
+            o.photon = false;
+        }
+    }
 }
 
 // Final direction of one view: the line fit kept to the shower around its maximum.
@@ -609,7 +727,7 @@ inline std::vector<Photon3D> MatchViews(const std::vector<Track2D>& xs, const st
         for (int i : x.idx) if (xcl[i].E > emax) { emax = xcl[i].E; ph.tmaxLayer = xcl[i].layer; }
         for (int i : y.idx) if (ycl[i].E > emax) { emax = ycl[i].E; ph.tmaxLayer = ycl[i].layer; }
         const Track2D lx = DirFit(x, xcl, ph.tmaxLayer, g, p), ly = DirFit(y, ycl, ph.tmaxLayer, g, p);
-        ph.E = x.E + x.Ehalo + y.E + y.Ehalo;
+        ph.Eraw = ph.E = x.E + x.Ehalo + y.E + y.Ehalo;
         ph.tx = lx.b; ph.ty = ly.b;
         ph.x = lx.a + lx.b * p.frontZ;
         ph.y = ly.a + ly.b * p.frontZ;
@@ -641,15 +759,17 @@ inline std::vector<Photon3D> MatchViews(const std::vector<Track2D>& xs, const st
         for (int i : y.idx) lc.push_back({ycl[i].layer, &ycl[i]});
         std::sort(lc.begin(), lc.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
         std::vector<double> el;
-        double bars = 0, wE = 0, wL = 0; int nE = 0, nL = 0;
+        double bars = 0, wE = 0, wL = 0, nMip = 0; int nE = 0, nL = 0;
         for (std::size_t k = 0; k < lc.size(); ++k) {
             el.push_back(lc[k].second->E);
             bars += lc[k].second->nb;
+            nMip += lc[k].second->E >= p.mipLayerLo && lc[k].second->E <= p.mipLayerHi && lc[k].second->nb <= p.mipLayerBars;
             if (k < lc.size() / 2 + lc.size() % 2) { wE += lc[k].second->rms; ++nE; } else { wL += lc[k].second->rms; ++nL; }
         }
         ph.nLit = static_cast<int>(lc.size());
         ph.last = lc.back().first;
         ph.meanBars = bars / ph.nLit;
+        ph.fracMip = nMip / ph.nLit;
         ph.widthEarly = nE ? wE / nE : 0; ph.widthLate = nL ? wL / nL : 0;
         std::vector<double> sorted = el;
         std::sort(sorted.begin(), sorted.end());
@@ -659,7 +779,8 @@ inline std::vector<Photon3D> MatchViews(const std::vector<Track2D>& xs, const st
         mean /= el.size();
         ph.layerEcv = mean > 0 ? std::sqrt(std::max(0.0, m2 / el.size() - mean * mean)) / mean : 0;
         ph.peakRatio = ph.medLayerE > 0 ? sorted.back() / ph.medLayerE : 0;
-        ph.cls = Classify(ph, p);
+        ph.cls = Classify(ph, g, p);
+        if (ph.cls == kMIP) ph.E = ph.Eraw;   // the leak correction is for a shower's lost halo
         ph.photon = ph.cls == kEM;   // the Si veto (ApplyVeto) may still clear it
         out.push_back(ph);
     }
@@ -667,17 +788,130 @@ inline std::vector<Photon3D> MatchViews(const std::vector<Track2D>& xs, const st
 }
 
 // Full chain for one event / overlay: cells (E, T per cellID) -> photons.
+// Fragments of a stronger object are no objects at all: their energy joins it. A fragment
+// starts satStartGap layers later with < satEfrac of its energy, or has < fragEfrac at any start.
 inline std::vector<Photon3D> ReconstructDepth(const std::vector<double>& E, const std::vector<double>& T,
                                               const Geometry& g, const RecoParams& p)
 {
     const auto cl = LayerClusters(E, T, g, p);
     const auto ys = FindTracks(cl[0], g, p), xs = FindTracks(cl[1], g, p);
     auto objs = MatchViews(xs, ys, cl[1], cl[0], g, p);
-    for (auto& o : objs)
-        for (const auto& b : objs)
-            if (&b != &o && o.photon && o.E < p.satEfrac * b.E && o.start >= b.start + p.satStartGap &&
-                std::hypot(o.x - b.x, o.y - b.y) < p.satRadius) o.photon = false;
-    return objs;
+    std::sort(objs.begin(), objs.end(), [](const Photon3D& a, const Photon3D& b) { return a.E > b.E; });
+    std::vector<Photon3D> kept;
+    for (const auto& o : objs) {
+        Photon3D* parent = nullptr;
+        for (auto& b : kept) {
+            const bool fragment = o.E < p.fragEfrac * b.E || (o.E < p.satEfrac * b.E && o.start >= b.start + p.satStartGap);
+            if (fragment && std::hypot(o.x - b.x, o.y - b.y) < p.satRadius) { parent = &b; break; }
+        }
+        if (!parent) { kept.push_back(o); continue; }
+        parent->E += o.Eraw * parent->E / parent->Eraw;   // parent's leak correction applies to what it contains
+        parent->Eraw += o.Eraw;
+    }
+    return kept;
+}
+
+// ══ Charged path through the calo ════════════════════════════════════════════
+//
+// A straight line is wrong here: 1 GeV pi+ scatters ~65 mrad over the 44 cm. So the Si line
+// seeds a Kalman filter per view, which follows the layer clusters and gives the path.
+
+enum PathEnd { kEndBack = 0, kEndSide, kEndShower, kEndStop };
+struct PathPoint { int layer; double u, E; int nb; };   // u: filtered position
+struct ChargedPath {
+    int obj = -1;                    // index of its calo object
+    std::array<std::vector<PathPoint>, 2> view;   // as LayerClusters: [0] y, even layers; [1] x, odd
+    int end = kEndStop;
+    int onset = -1;                  // layer where the track turns into a shower, -1 = never
+    int last = -1;                   // last layer on the path
+};
+
+// One view; sideLayer: layer where the prediction left the calo, -1 = never.
+inline std::vector<PathPoint> FollowView(const std::vector<LayerCluster>& cl, int view, int nLayers, double u0, double s0,
+                                         double sigU, double sigS, const Geometry& g, const RecoParams& p, int& sideLayer)
+{
+    std::vector<PathPoint> out;
+    double u = u0, s = s0, Puu = sigU * sigU, Pus = 0, Pss = sigS * sigS, z = p.frontZ;
+    const double r2 = g.pitch() * g.pitch() / 12.0;
+    int miss = 0;
+    for (int l = view; l < nLayers; l += 2) {
+        const double zl = LayerZ(l, p), d = zl - z, q = p.pathMsPerStep * std::sqrt(d / (2 * p.layerThick));
+        u += s * d;
+        Puu += d * (2 * Pus + d * Pss);
+        Pus += d * Pss;
+        Pss += q * q;
+        z = zl;
+        if (std::abs(u) > g.caloXY_mm / 2) { sideLayer = l; break; }
+        const double road = std::max(p.roadMin * g.pitch(), 3 * std::sqrt(Puu + r2));
+        const LayerCluster* best = nullptr;
+        for (const auto& c : cl)
+            if (c.layer == l && std::abs(c.u - u) < road && (!best || std::abs(c.u - u) < std::abs(best->u - u))) best = &c;
+        if (!best) { if (++miss > p.maxMiss) break; continue; }
+        miss = 0;
+        const double res = best->u - u, S = Puu + r2, Ku = Puu / S, Ks = Pus / S;
+        u += Ku * res;
+        s += Ks * res;
+        Pss -= Ks * Pus;
+        Pus -= Ku * Pus;
+        Puu -= Ku * Puu;
+        out.push_back({l, u, best->E, best->nb});
+    }
+    return out;
+}
+
+inline ChargedPath FollowCharged(const std::array<std::vector<LayerCluster>, 2>& cl, int nLayers, double x, double y,
+                                 double tx, double ty, double sigU, double sigS, const Geometry& g, const RecoParams& p)
+{
+    ChargedPath path;
+    int side[2] = {-1, -1};
+    path.view[0] = FollowView(cl[0], 0, nLayers, y, ty, sigU, sigS, g, p, side[0]);
+    path.view[1] = FollowView(cl[1], 1, nLayers, x, tx, sigU, sigS, g, p, side[1]);
+    // The particle is gone once either view loses it: the other must not run on along stray bars.
+    int cut = nLayers;
+    for (const auto& w : path.view) cut = std::min(cut, (w.empty() ? -1 : w.back().layer) + 2);
+    std::vector<PathPoint> all;
+    for (auto& w : path.view) {
+        while (!w.empty() && w.back().layer > cut) w.pop_back();
+        all.insert(all.end(), w.begin(), w.end());
+    }
+    std::sort(all.begin(), all.end(), [](const PathPoint& a, const PathPoint& b) { return a.layer < b.layer; });
+    if (all.empty()) return path;
+    path.last = all.back().layer;
+    // Shower onset: hard layers that persist. A delta ray spans a layer or two. Near the back,
+    // all the layers left count, so an interaction in the last layers is still seen.
+    auto hard = [&](std::size_t i) { return all[i].E > p.mipLayerHi || all[i].nb > p.mipLayerBars; };
+    for (std::size_t i = 0; i + 1 < all.size() && path.onset < 0; ++i) {
+        const int left = std::min<int>(3, static_cast<int>(all.size() - 1 - i));
+        int more = 0;
+        for (int k = 1; k <= left; ++k) more += hard(i + k);
+        if (hard(i) && more >= std::min(p.pathOnsetHard, left)) path.onset = all[i].layer;
+    }
+    // A track lost in the outermost bar left through the side, even if the filter's prediction stayed inside.
+    bool nearSide = false;
+    for (const auto& w : path.view) nearSide = nearSide || (!w.empty() && std::abs(w.back().u) >= g.caloXY_mm / 2 - g.pitch());
+    path.end = path.onset >= 0 ? kEndShower
+             : side[0] >= 0 || side[1] >= 0 ? kEndSide
+             : path.last >= nLayers - 2 ? kEndBack
+             : nearSide ? kEndSide : kEndStop;
+    return path;
+}
+
+// A path for each object known to be charged: Si-tagged (seeded by its Si line) or a
+// calo-only MIP (seeded by its calo line, so looser).
+inline std::vector<ChargedPath> ChargedPaths(const std::vector<Photon3D>& objs, const std::vector<double>& E,
+                                             const std::vector<double>& T, const Geometry& g, const RecoParams& p)
+{
+    std::vector<ChargedPath> out;
+    const auto cl = LayerClusters(E, T, g, p);
+    const int nLayers = static_cast<int>(E.size()) / g.nPerLayer;
+    for (std::size_t i = 0; i < objs.size(); ++i) {
+        const auto& o = objs[i];
+        if (o.charged) out.push_back(FollowCharged(cl, nLayers, o.siX, o.siY, o.siTx, o.siTy, p.pathSeedPos, p.pathSeedSlope, g, p));
+        else if (o.cls == kMIP) out.push_back(FollowCharged(cl, nLayers, o.x, o.y, o.tx, o.ty, p.pathCaloPos, p.pathCaloSlope, g, p));
+        else continue;
+        out.back().obj = static_cast<int>(i);
+    }
+    return out;
 }
 
 // ══ Species probabilities: naive Bayes (Edge-HadronID-ALP plan B2-B3) ════════
